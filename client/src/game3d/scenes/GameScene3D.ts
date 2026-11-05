@@ -10,6 +10,7 @@ import { RecipeManager } from '../../game/recipes/RecipeManager';
 import { SoundManager } from '../../game/systems/SoundManager';
 import { NetworkManager } from '../../multiplayer/NetworkManager';
 import { CounterType, IngredientType, KitchenItem, StoveState } from '../../game/types';
+import { CookingConfig } from '../../game/config/CookingConfig';
 
 export interface GameScene3DConfig {
   isMultiplayer: boolean;
@@ -72,6 +73,8 @@ export class GameScene3D {
   private activeCookCounter: Counter3DData | null = null;
   private cookAnimTimer = 0;
   private chopEffectTimer = 0;
+  private sprayEffectTimer = 0;
+  private spraySyncTimer = 0;
   private isPlayerMoving = false;
   private lastSyncedAnim = 'IDLE';
 
@@ -342,6 +345,8 @@ export class GameScene3D {
       cutProgress?: number;
       stoveState?: StoveState;
       cookingTimer?: number;
+      isOnFire?: boolean;
+      fireIntensity?: number;
     }) => {
       const counter = this.map.counters.get(data.id);
       if (!counter) return;
@@ -351,6 +356,8 @@ export class GameScene3D {
       if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
       if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
       if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
+      if (data.isOnFire !== undefined) counter.isOnFire = data.isOnFire;
+      if (data.fireIntensity !== undefined) counter.fireIntensity = data.fireIntensity;
 
       if (data.item) {
         const mesh = Ingredient3DFactory.createMesh(data.item);
@@ -359,6 +366,21 @@ export class GameScene3D {
     };
     room.onMessage('remote_counter_update', handleCounterSync);
     room.onMessage('counter_update', handleCounterSync);
+
+    // Remote fire & extinguisher spray sync
+    room.onMessage('remote_fire_update', (data: { id: string; isOnFire: boolean; fireIntensity: number }) => {
+      const counter = this.map.counters.get(data.id);
+      if (counter) {
+        counter.isOnFire = data.isOnFire;
+        counter.fireIntensity = data.fireIntensity;
+      }
+    });
+
+    room.onMessage('remote_player_spray', (data: { id: string; x: number; z: number; dirX: number; dirZ: number }) => {
+      if (data.id === this.network.mySessionId) return;
+      this.particles.emitExtinguisherFoam(data.x, 0.78, data.z, data.dirX, data.dirZ);
+      this.sound.playExtinguisherSpray();
+    });
 
     // 4. Remote thrown item
     room.onMessage('remote_throw_item', (data: { item: KitchenItem; fromX: number; fromZ: number; toX: number; toZ: number }) => {
@@ -581,7 +603,29 @@ export class GameScene3D {
   }
 
   private isCookable(type: IngredientType): boolean {
-    return type === IngredientType.RAW_MEAT || type === IngredientType.COOKED_PATTY;
+    return this.isRawCookable(type) || this.isAlreadyCooked(type);
+  }
+
+  private isRawCookable(type: IngredientType): boolean {
+    return (
+      type === IngredientType.RAW_MEAT ||
+      type === IngredientType.CHICKEN ||
+      type === IngredientType.FISH ||
+      type === IngredientType.SHRIMP ||
+      type === IngredientType.EGG ||
+      type === IngredientType.POTATO ||
+      type === IngredientType.CHOPPED_POTATO
+    );
+  }
+
+  private isAlreadyCooked(type: IngredientType): boolean {
+    return (
+      type === IngredientType.COOKED_PATTY ||
+      type === IngredientType.COOKED_CHICKEN ||
+      type === IngredientType.COOKED_FISH ||
+      type === IngredientType.COOKED_SHRIMP ||
+      type === IngredientType.FRIED_EGG
+    );
   }
 
   private faceCounter(counter: Counter3DData) {
@@ -631,9 +675,20 @@ export class GameScene3D {
   }
 
   private updateContextualHUD() {
+    // Priority 1: Player is holding the Fire Extinguisher -> Hold-to-Spray Foam button!
+    if (this.heldItem && this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
+      this.hud.updateContextualActionButton('🧯<br>PHUN BỌT', '#0ea5e9', true);
+      return;
+    }
+
     const c = this.currentFacingCounter;
     if (!c) {
       this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+      return;
+    }
+
+    if (c.isOnFire) {
+      this.hud.updateContextualActionButton('🔥<br>ĐANG CHÁY', '#ef4444', false);
       return;
     }
 
@@ -747,42 +802,213 @@ export class GameScene3D {
       }
     }
 
-    // 3. AUTONOMOUS STOVE SIMULATION (Continues cooking in real-time even when player walks away!)
-    this.map.counters.forEach((c) => {
-      if (c.type === CounterType.STOVE && c.currentItem) {
-        if (c.currentItem.type === IngredientType.RAW_MEAT || c.currentItem.type === IngredientType.COOKED_PATTY) {
-          c.cookingTimer += delta;
-          this.sound.playSizzle();
-          this.particles.emitSteam(c.x, 0.96, c.z);
+    // 2.5. FIRE EXTINGUISHER SPRAY SYSTEM (Hold [Space] or Hold Mobile Contextual Button while holding extinguisher)
+    const isSpraying =
+      this.heldItem?.type === IngredientType.FIRE_EXTINGUISHER &&
+      (this.keys['Space'] || this.hud.inputs.isActionPressed);
 
-          if (c.currentItem.type === IngredientType.RAW_MEAT) {
-            c.stoveState = StoveState.COOKING;
-            // After 5.5s -> COOKED
-            if (c.cookingTimer >= 5.5) {
-              c.currentItem.type = IngredientType.COOKED_PATTY;
-              c.stoveState = StoveState.COOKED;
-              c.itemHolder.clear();
-              c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
-              this.map.triggerCounterBounce(c.id);
-              this.sound.playPickup();
-              this.broadcastCounterUpdate(c);
+    if (isSpraying) {
+      this.sprayEffectTimer += delta;
+      if (this.sprayEffectTimer >= 0.045) {
+        this.sprayEffectTimer = 0;
+        this.particles.emitExtinguisherFoam(
+          this.playerPos.x,
+          0.75,
+          this.playerPos.z,
+          this.facingDir.x,
+          this.facingDir.z
+        );
+        this.sound.playExtinguisherSpray();
+      }
+
+      if (this.config.isMultiplayer && this.network.room) {
+        this.spraySyncTimer += delta;
+        if (this.spraySyncTimer >= 0.08) {
+          this.spraySyncTimer = 0;
+          this.network.room.send('player_spray', {
+            x: this.playerPos.x,
+            z: this.playerPos.z,
+            dirX: this.facingDir.x,
+            dirZ: this.facingDir.z
+          });
+        }
+      }
+
+      // Check all burning counters within 3.0 units & 45-degree cone (±22.5°) in front of player
+      const cosHalfCone = Math.cos(((CookingConfig.fire.sprayAngleDeg * 0.5) * Math.PI) / 180);
+      this.map.counters.forEach((c) => {
+        if (!c.isOnFire || (c.fireIntensity ?? 0) <= 0) return;
+
+        const dx = c.x - this.playerPos.x;
+        const dz = c.z - this.playerPos.z;
+        const dist = Math.hypot(dx, dz);
+
+        if (dist <= CookingConfig.fire.sprayRange && dist > 0.01) {
+          const dot = (dx / dist) * this.facingDir.x + (dz / dist) * this.facingDir.z;
+          // Inside 45° cone OR standing directly adjacent facing the counter
+          if (dot >= cosHalfCone || (dist <= 1.25 && dot >= 0.55)) {
+            c.fireSpreadTimer = 0; // Pause fire spread while being sprayed
+            c.fireIntensity = Math.max(
+              0,
+              (c.fireIntensity ?? 1.0) - delta / CookingConfig.fire.extinguishDuration
+            );
+
+            if (c.fireIntensity <= 0) {
+              c.isOnFire = false;
+              c.fireIntensity = 0;
+              c.fireSpreadTimer = 0;
+              this.sound.playCookedReady();
+              this.hud.showFloatingPopup('🧯 ĐÃ DẬP LỬA THÀNH CÔNG!', '#0ea5e9');
             }
-          } else if (c.currentItem.type === IngredientType.COOKED_PATTY) {
-            if (c.cookingTimer >= 8.5 && c.cookingTimer < 11.0) {
-              c.stoveState = StoveState.BURNING;
-              if (Math.random() < 0.35) {
-                this.particles.emitBurntSmoke(c.x, 0.98, c.z);
+
+            if (this.config.isMultiplayer && this.network.room) {
+              this.network.room.send('fire_update', {
+                id: c.id,
+                isOnFire: c.isOnFire,
+                fireIntensity: c.fireIntensity
+              });
+            }
+          }
+        }
+      });
+    }
+
+    // 3. AUTONOMOUS STOVE SIMULATION & FIRE SPREAD SYSTEM
+    let burningCount = 0;
+    this.map.counters.forEach((c) => {
+      if (c.isOnFire) burningCount++;
+    });
+
+    this.map.counters.forEach((c) => {
+      // 3A. Active Fire VFX & Bounded Spread (Max 3 burning counters)
+      if (c.isOnFire) {
+        if (Math.random() < 0.25) {
+          this.particles.emitFireEmbers(c.x, 1.05, c.z);
+        }
+        if (Math.random() < 0.18) {
+          this.particles.emitBurntSmoke(c.x, 1.15, c.z);
+        }
+
+        c.fireSpreadTimer = (c.fireSpreadTimer || 0) + delta;
+        if (c.fireSpreadTimer >= CookingConfig.fire.fireSpreadInterval) {
+          c.fireSpreadTimer = 0;
+          if (burningCount < CookingConfig.fire.fireSpreadLimit) {
+            // Find an adjacent counter that is not on fire and not delivery/trash/extinguisher station
+            for (const neighbor of this.map.counters.values()) {
+              if (
+                neighbor.id !== c.id &&
+                !neighbor.isOnFire &&
+                neighbor.type !== CounterType.DELIVERY &&
+                neighbor.type !== CounterType.TRASH &&
+                neighbor.id !== 'counter_3_-3'
+              ) {
+                const dist = Math.hypot(neighbor.x - c.x, neighbor.z - c.z);
+                if (dist <= 1.2) {
+                  neighbor.isOnFire = true;
+                  neighbor.fireIntensity = 1.0;
+                  neighbor.fireSpreadTimer = 0;
+                  burningCount++;
+                  this.sound.playFireIgnite();
+                  this.hud.showFloatingPopup('🔥 LỬA LAN SANG BÀN BÊN CẠNH!', '#ef4444');
+                  if (this.config.isMultiplayer && this.network.room) {
+                    this.network.room.send('fire_update', {
+                      id: neighbor.id,
+                      isOnFire: true,
+                      fireIntensity: 1.0
+                    });
+                  }
+                  break;
+                }
               }
             }
-            // After 11s -> BURNT!
-            if (c.cookingTimer >= 11.0) {
-              c.currentItem.type = IngredientType.BURNT_PATTY;
-              c.stoveState = StoveState.BURNT;
-              this.particles.emitBurntSmoke(c.x, 0.98, c.z);
-              c.itemHolder.clear();
-              c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+          }
+        }
+        // Burning stove cannot cook until extinguished!
+        return;
+      }
+
+      // 3B. Rebalanced Overcooked 2 Stove Cooking & Post-Cooked Burn Timeline
+      if (c.type === CounterType.STOVE && c.currentItem && this.isCookable(c.currentItem.type)) {
+        const cookDuration = CookingConfig.getCookDuration(c.currentItem.type);
+        const safeEnd = cookDuration + CookingConfig.burnTimeline.safeDuration; // e.g. 8 + 5 = 13s
+        const warnEnd = safeEnd + CookingConfig.burnTimeline.warningDuration;   // e.g. 13 + 5 = 18s
+        const dangerEnd = warnEnd + CookingConfig.burnTimeline.dangerDuration;  // e.g. 18 + 3 = 21s
+
+        c.cookingTimer += delta;
+        c.currentItem.cookingTimer = c.cookingTimer;
+
+        this.sound.playSizzle();
+        if (Math.random() < 0.25) {
+          this.particles.emitSteam(c.x, 0.96, c.z);
+        }
+
+        if (this.isRawCookable(c.currentItem.type)) {
+          c.stoveState = StoveState.COOKING;
+          c.currentItem.stoveState = StoveState.COOKING;
+
+          // Completed raw -> cooked!
+          if (c.cookingTimer >= cookDuration) {
+            c.currentItem.type = CookingConfig.getCookedCounterpart(c.currentItem.type);
+            c.stoveState = StoveState.COOKED;
+            c.currentItem.stoveState = StoveState.COOKED;
+            c.beepTimer = 0;
+            c.itemHolder.clear();
+            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+            this.map.triggerCounterBounce(c.id);
+            this.sound.playCookedReady();
+            this.broadcastCounterUpdate(c);
+          }
+        } else if (this.isAlreadyCooked(c.currentItem.type)) {
+          if (c.cookingTimer < safeEnd) {
+            // 0–5s after cooked: COOKED (Safe)
+            c.stoveState = StoveState.COOKED;
+            c.currentItem.stoveState = StoveState.COOKED;
+          } else if (c.cookingTimer < warnEnd) {
+            // 5–10s after cooked: WARNING (⚠️ + periodic beep)
+            const prevState = c.stoveState;
+            c.stoveState = StoveState.WARNING;
+            c.currentItem.stoveState = StoveState.WARNING;
+            if (prevState !== StoveState.WARNING) {
               this.broadcastCounterUpdate(c);
             }
+            c.beepTimer = (c.beepTimer || 0) + delta;
+            if (c.beepTimer >= 0.85) {
+              c.beepTimer = 0;
+              this.sound.playBeep(false);
+            }
+          } else if (c.cookingTimer < dangerEnd) {
+            // 10–13s after cooked: DANGER (🔥 + rapid urgent beep + dark smoke)
+            const prevState = c.stoveState;
+            c.stoveState = StoveState.DANGER;
+            c.currentItem.stoveState = StoveState.DANGER;
+            if (prevState !== StoveState.DANGER) {
+              this.broadcastCounterUpdate(c);
+            }
+            c.beepTimer = (c.beepTimer || 0) + delta;
+            if (c.beepTimer >= 0.30) {
+              c.beepTimer = 0;
+              this.sound.playBeep(true);
+            }
+            if (Math.random() < 0.35) {
+              this.particles.emitBurntSmoke(c.x, 0.98, c.z);
+            }
+          } else {
+            // >= 13s after cooked: BURNT & Stove Ignites!
+            c.currentItem.type = IngredientType.BURNT_PATTY;
+            c.stoveState = StoveState.BURNT;
+            c.currentItem.stoveState = StoveState.BURNT;
+            c.isOnFire = true;
+            c.fireIntensity = 1.0;
+            c.fireSpreadTimer = 0;
+
+            this.particles.emitBurntSmoke(c.x, 0.98, c.z);
+            this.particles.emitFireEmbers(c.x, 1.05, c.z);
+            this.sound.playFireIgnite();
+            this.hud.showFloatingPopup('🔥 THỨC ĂN CHÁY! BẾP ĐANG BỐC LỬA (DÙNG 🧯)!', '#ef4444');
+
+            c.itemHolder.clear();
+            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+            this.broadcastCounterUpdate(c);
           }
         }
       }
@@ -825,8 +1051,20 @@ export class GameScene3D {
    */
   private handleSmartAction() {
     this.sound.init();
+    // If holding Fire Extinguisher, holding Space/Button is handled continuously in updateKitchenSimulation
+    if (this.heldItem && this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
+      return;
+    }
+
     const counter = this.currentFacingCounter;
     if (!counter) return;
+
+    // Cannot use a station that is currently on fire!
+    if (counter.isOnFire) {
+      this.sound.playBeep(true);
+      this.hud.showFloatingPopup('🧯 HÃY DẬP LỬA TRƯỚC KHI SỬ DỤNG TRẠM NÀY!', '#ef4444');
+      return;
+    }
 
     // 1. SMART CHOPPING ON CUTTING BOARD
     if (counter.type === CounterType.CUTTING_BOARD) {
@@ -856,13 +1094,16 @@ export class GameScene3D {
 
     // 2. SMART COOKING ON STOVE
     if (counter.type === CounterType.STOVE) {
-      // If holding raw/cooked meat and stove is empty -> auto-place into frying pan!
+      // If holding raw/cooked meat and stove is empty -> auto-place into frying pan & resume timer!
       if (!counter.currentItem && this.heldItem && this.isCookable(this.heldItem.type)) {
         counter.currentItem = this.heldItem;
-        counter.stoveState =
-          this.heldItem.type === IngredientType.RAW_MEAT ? StoveState.COOKING : StoveState.COOKED;
-        if (this.heldItem.type === IngredientType.RAW_MEAT) {
-          counter.cookingTimer = 0;
+        if (this.isRawCookable(this.heldItem.type)) {
+          counter.stoveState = StoveState.COOKING;
+          counter.cookingTimer = this.heldItem.cookingTimer ?? 0;
+        } else {
+          counter.stoveState = this.heldItem.stoveState ?? StoveState.COOKED;
+          counter.cookingTimer =
+            this.heldItem.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
         }
         const mesh = Ingredient3DFactory.createMesh(this.heldItem);
         counter.itemHolder.clear();
@@ -982,14 +1223,26 @@ export class GameScene3D {
       return;
     }
 
-    // 2. TRASH BIN (Dispose held item)
+    // 2. TRASH BIN (Dispose held item — except Fire Extinguisher!)
     if (counter.type === CounterType.TRASH) {
       if (this.heldItem) {
+        if (this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
+          this.sound.playBeep(false);
+          this.hud.showFloatingPopup('🧯 Hãy đặt Bình Cứu Hỏa lên bàn thay vì vứt vào thùng rác!', '#0ea5e9');
+          return;
+        }
         this.sound.playTrash();
         this.setHeldItem(null);
         this.localPlayer.playOneShot('DROP');
         this.syncPlayerAnim('DROP');
       }
+      return;
+    }
+
+    // Block interacting with a counter that is currently on fire!
+    if (counter.isOnFire) {
+      this.sound.playBeep(true);
+      this.hud.showFloatingPopup('🔥 BÀN ĐANG CHÁY! DÙNG BÌNH CỨU HỎA (🧯) ĐỂ DẬP LỬA!', '#ef4444');
       return;
     }
 
@@ -1027,7 +1280,11 @@ export class GameScene3D {
 
     // 4. CLEAR COUNTER / CUTTING BOARD / STOVE INTERACTION
     if (!this.heldItem && counter.currentItem) {
-      // Pick up from counter (Note: picking up an item resets that counter's progress)
+      // Phase 4: Picking up from a stove PAUSES and PRESERVES cookingTimer & stoveState on the item!
+      if (counter.type === CounterType.STOVE) {
+        counter.currentItem.cookingTimer = counter.cookingTimer;
+        counter.currentItem.stoveState = counter.stoveState;
+      }
       this.setHeldItem(counter.currentItem);
       counter.currentItem = null;
       counter.cookingTimer = 0;
@@ -1042,17 +1299,22 @@ export class GameScene3D {
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && !counter.currentItem) {
       // Drop onto empty counter
-      // Check stove restrictions (only raw or cooked meat allowed on stove)
-      if (counter.type === CounterType.STOVE &&
-          this.heldItem.type !== IngredientType.RAW_MEAT &&
-          this.heldItem.type !== IngredientType.COOKED_PATTY) {
+      // Check stove restrictions (only cookable items allowed on stove)
+      if (counter.type === CounterType.STOVE && !this.isCookable(this.heldItem.type)) {
         return;
       }
 
       counter.currentItem = this.heldItem;
-      if (counter.type === CounterType.STOVE && this.heldItem.type === IngredientType.RAW_MEAT) {
-        counter.stoveState = StoveState.COOKING;
-        counter.cookingTimer = 0;
+      if (counter.type === CounterType.STOVE) {
+        // Phase 4: Resume cooking / burn timer from where it was paused!
+        if (this.isRawCookable(this.heldItem.type)) {
+          counter.stoveState = StoveState.COOKING;
+          counter.cookingTimer = this.heldItem.cookingTimer ?? 0;
+        } else if (this.isAlreadyCooked(this.heldItem.type)) {
+          counter.stoveState = this.heldItem.stoveState ?? StoveState.COOKED;
+          counter.cookingTimer =
+            this.heldItem.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
+        }
       }
       const mesh = Ingredient3DFactory.createMesh(this.heldItem);
       counter.itemHolder.add(mesh);
@@ -1063,6 +1325,16 @@ export class GameScene3D {
       this.sound.playDrop();
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && counter.currentItem) {
+      // Prevent combining Fire Extinguisher or Burnt Food with a Plate
+      if (
+        this.heldItem.type === IngredientType.FIRE_EXTINGUISHER ||
+        counter.currentItem.type === IngredientType.FIRE_EXTINGUISHER ||
+        this.heldItem.type === IngredientType.BURNT_PATTY ||
+        counter.currentItem.type === IngredientType.BURNT_PATTY
+      ) {
+        return;
+      }
+
       // COMBINE: Plate + Ingredient assembly
       if (counter.currentItem.type === IngredientType.PLATE && this.heldItem.type !== IngredientType.PLATE) {
         // Add held ingredient onto plate on counter
@@ -1078,7 +1350,7 @@ export class GameScene3D {
         this.sound.playDrop();
         this.broadcastCounterUpdate(counter);
       } else if (this.heldItem.type === IngredientType.PLATE && counter.currentItem.type !== IngredientType.PLATE) {
-        // Held plate picks up ingredient from counter!
+        // Held plate picks up cooked/prepared ingredient from counter!
         if (!this.heldItem.plateContents) this.heldItem.plateContents = [];
         this.heldItem.plateContents.push(counter.currentItem.type);
 
@@ -1107,21 +1379,42 @@ export class GameScene3D {
       }
     }
 
-    if (closest && !closest.type.startsWith('crate_') && closest.type !== CounterType.TRASH && closest.type !== CounterType.DELIVERY) {
+    if (
+      closest &&
+      !closest.isOnFire &&
+      !closest.type.startsWith('crate_') &&
+      closest.type !== CounterType.TRASH &&
+      closest.type !== CounterType.DELIVERY
+    ) {
       if (!closest.currentItem) {
-        if (closest.type === CounterType.STOVE && item.type !== IngredientType.RAW_MEAT && item.type !== IngredientType.COOKED_PATTY) {
+        if (closest.type === CounterType.STOVE && !this.isCookable(item.type)) {
           return;
         }
         closest.currentItem = item;
-        if (closest.type === CounterType.STOVE && item.type === IngredientType.RAW_MEAT) {
-          closest.stoveState = StoveState.COOKING;
-          closest.cookingTimer = 0;
+        if (closest.type === CounterType.STOVE) {
+          if (this.isRawCookable(item.type)) {
+            closest.stoveState = StoveState.COOKING;
+            closest.cookingTimer = item.cookingTimer ?? 0;
+          } else if (this.isAlreadyCooked(item.type)) {
+            closest.stoveState = item.stoveState ?? StoveState.COOKED;
+            closest.cookingTimer =
+              item.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
+          }
         }
         closest.itemHolder.clear();
         closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
         this.map.triggerCounterBounce(closest.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(closest);
+      }
+    } else if (item.type === IngredientType.FIRE_EXTINGUISHER) {
+      // Never allow the Fire Extinguisher to vanish if thrown off a counter — return it to its station!
+      const extStation = this.map.counters.get('counter_3_-3');
+      if (extStation && !extStation.currentItem) {
+        extStation.currentItem = item;
+        extStation.itemHolder.clear();
+        extStation.itemHolder.add(Ingredient3DFactory.createMesh(item));
+        this.broadcastCounterUpdate(extStation);
       }
     }
   }
@@ -1184,7 +1477,9 @@ export class GameScene3D {
         item: counter.currentItem,
         cutProgress: counter.cutProgress,
         stoveState: counter.stoveState,
-        cookingTimer: counter.cookingTimer
+        cookingTimer: counter.cookingTimer,
+        isOnFire: counter.isOnFire,
+        fireIntensity: counter.fireIntensity
       });
     }
   }

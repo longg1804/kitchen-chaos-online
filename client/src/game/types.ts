@@ -21,13 +21,16 @@ export enum IngredientType {
   CHOPPED_POTATO = 'chopped_potato',
   EGG = 'egg',
   FRIED_EGG = 'fried_egg',
-  PLATE = 'plate'
+  PLATE = 'plate',
+  FIRE_EXTINGUISHER = 'fire_extinguisher'
 }
 
 export interface KitchenItem {
   id: string;
   type: IngredientType;
   plateContents?: IngredientType[];
+  cookingTimer?: number;
+  stoveState?: StoveState;
 }
 
 export enum CounterType {
@@ -50,6 +53,8 @@ export enum StoveState {
   IDLE = 'idle',
   COOKING = 'cooking',
   COOKED = 'cooked',
+  WARNING = 'warning',
+  DANGER = 'danger',
   BURNING = 'burning',
   BURNT = 'burnt'
 }

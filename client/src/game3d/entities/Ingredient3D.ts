@@ -129,6 +129,9 @@ export class Ingredient3DFactory {
       case IngredientType.FRIED_EGG:
         this.buildEgg(group, true);
         break;
+      case IngredientType.FIRE_EXTINGUISHER:
+        this.buildFireExtinguisher(group);
+        break;
       default:
         this.buildBread(group, false);
         break;
@@ -688,6 +691,91 @@ export class Ingredient3DFactory {
       egg.castShadow = true;
       group.add(egg);
     }
+  }
+
+  // 13. 3D CARTOON FIRE EXTINGUISHER (Phase 3.1 - Red tank, valve handle, pressure gauge, label & forward nozzle)
+  private static buildFireExtinguisher(group: THREE.Group) {
+    const redTankMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.25, metalness: 0.2 });
+    const darkRubberMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.65, metalness: 0.1 });
+    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.15, metalness: 0.88 });
+    const labelWhiteMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.4 });
+    const gaugeGreenMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+
+    // 1. Black protective bottom boot resting at Y = 0
+    const boot = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.16, 0.06, 20), darkRubberMat);
+    boot.position.y = 0.03;
+    boot.castShadow = true;
+    group.add(boot);
+
+    // 2. Main Red Cylinder Body
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.145, 0.42, 22), redTankMat);
+    tank.position.y = 0.25;
+    tank.castShadow = true;
+    group.add(tank);
+
+    // 3. Rounded Dome Shoulder Top
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(0.145, 22, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+      redTankMat
+    );
+    dome.position.y = 0.46;
+    dome.castShadow = true;
+    group.add(dome);
+
+    // 4. High-Contrast Instructional Safety Label Band around tank middle
+    const labelBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.149, 0.149, 0.16, 22, 1, true),
+      labelWhiteMat
+    );
+    labelBand.position.y = 0.27;
+    group.add(labelBand);
+
+    // Red stripe accent on label
+    const stripe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.151, 0.151, 0.035, 22, 1, true),
+      redTankMat
+    );
+    stripe.position.y = 0.27;
+    group.add(stripe);
+
+    // 5. Chrome Neck & Valve Assembly
+    const valveNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.09, 14), chromeMat);
+    valveNeck.position.y = 0.61;
+    group.add(valveNeck);
+
+    // Bottom fixed carry handle & top squeeze trigger lever (angled backward -Z)
+    const bottomHandle = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.022, 0.18), chromeMat);
+    bottomHandle.position.set(0, 0.64, -0.07);
+    group.add(bottomHandle);
+
+    const topLever = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.022, 0.20), redTankMat);
+    topLever.position.set(0, 0.69, -0.07);
+    topLever.rotation.x = 0.28;
+    group.add(topLever);
+
+    // 6. Pressure Gauge Dial on side
+    const gaugeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.025, 12), chromeMat);
+    gaugeBody.rotation.z = Math.PI / 2;
+    gaugeBody.position.set(0.06, 0.61, 0);
+    group.add(gaugeBody);
+
+    const gaugeFace = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.028, 12), gaugeGreenMat);
+    gaugeFace.rotation.z = Math.PI / 2;
+    gaugeFace.position.set(0.062, 0.61, 0);
+    group.add(gaugeFace);
+
+    // 7. Forward-Facing Black Hose & Flared CO2 Horn Nozzle (+Z direction)
+    const hoseElbow = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.12, 10), darkRubberMat);
+    hoseElbow.rotation.x = Math.PI / 2.3;
+    hoseElbow.position.set(0, 0.59, 0.08);
+    group.add(hoseElbow);
+
+    // Flared discharge horn pointing forward (+Z) so foam sprays in front of chef
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.20, 14), darkRubberMat);
+    horn.rotation.x = -Math.PI / 2.2;
+    horn.position.set(0, 0.55, 0.20);
+    horn.castShadow = true;
+    group.add(horn);
   }
 }
 

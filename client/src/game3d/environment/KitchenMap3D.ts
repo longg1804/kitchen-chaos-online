@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CounterType, IngredientType, KitchenItem, StoveState } from '../../game/types';
+import { CookingConfig } from '../../game/config/CookingConfig';
 import { MaterialFactory } from './MaterialFactory';
 import { Physics3D } from '../core/Physics3D';
 import { TextureGenerator3D } from './TextureGenerator3D';
@@ -20,6 +21,12 @@ export interface Counter3DData {
   progressGroup?: THREE.Group;
   progressFillMesh?: THREE.Mesh;
   progressFillMat?: THREE.MeshBasicMaterial;
+  statusSprite?: THREE.Sprite;
+  fireGroup?: THREE.Group;
+  isOnFire?: boolean;
+  fireIntensity?: number;
+  fireSpreadTimer?: number;
+  beepTimer?: number;
   currentItem?: KitchenItem | null;
   cutProgress: number;
   stoveState: StoveState;
@@ -32,11 +39,43 @@ export class KitchenMap3D {
   public counters: Map<string, Counter3DData> = new Map();
   public floorMesh!: THREE.Mesh;
   private roomGroup: THREE.Group = new THREE.Group();
+  private statusMaterials: Record<string, THREE.SpriteMaterial> = {};
 
   constructor(scene: THREE.Scene, physics: Physics3D) {
     this.scene = scene;
     this.physics = physics;
     this.scene.add(this.roomGroup);
+    this.initStatusBadgeMaterials();
+  }
+
+  private initStatusBadgeMaterials() {
+    const makeBadgeMat = (emoji: string, bgColor: string, borderColor: string) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d')!;
+
+      ctx.fillStyle = bgColor;
+      ctx.beginPath();
+      ctx.arc(64, 64, 54, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = borderColor;
+      ctx.stroke();
+
+      ctx.font = '62px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, 64, 68);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      return new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    };
+
+    this.statusMaterials['COOKED'] = makeBadgeMat('✅', 'rgba(6, 78, 59, 0.95)', '#10b981');
+    this.statusMaterials['WARNING'] = makeBadgeMat('⚠️', 'rgba(120, 53, 15, 0.95)', '#f59e0b');
+    this.statusMaterials['DANGER'] = makeBadgeMat('🔥', 'rgba(127, 29, 29, 0.95)', '#ef4444');
   }
 
   public buildMap(mapType: string = 'traditional') {
@@ -250,6 +289,24 @@ export class KitchenMap3D {
     // Equipment on top based on Type
     const extraRefs = this.decorateCounter(group, type, id);
 
+    // 3D Cartoon Fire Group (Hidden unless counter catches fire or fire spreads to it)
+    const fireGroup = this.createFireMesh3D();
+    group.add(fireGroup);
+
+    // Ensure every counter has a progress bar group so fire extinguishing progress can also be shown
+    let progressGroup = extraRefs.progressGroup;
+    let progressFillMesh = extraRefs.progressFillMesh;
+    let progressFillMat = extraRefs.progressFillMat;
+    let statusSprite = extraRefs.statusSprite;
+    if (!progressGroup) {
+      const prog = this.createProgressBar3D();
+      group.add(prog.progressGroup);
+      progressGroup = prog.progressGroup;
+      progressFillMesh = prog.progressFillMesh;
+      progressFillMat = prog.progressFillMat;
+      statusSprite = prog.statusSprite;
+    }
+
     this.scene.add(group);
     this.physics.addBox(id, x, z, 1.0, 1.0);
 
@@ -265,13 +322,29 @@ export class KitchenMap3D {
       heatRingMat: extraRefs.heatRingMat,
       isActivelyChopping: false,
       bounceTimer: 0,
-      progressGroup: extraRefs.progressGroup,
-      progressFillMesh: extraRefs.progressFillMesh,
-      progressFillMat: extraRefs.progressFillMat,
+      progressGroup,
+      progressFillMesh,
+      progressFillMat,
+      statusSprite,
+      fireGroup,
+      isOnFire: false,
+      fireIntensity: 0,
+      fireSpreadTimer: 0,
+      beepTimer: 0,
       cutProgress: 0,
       stoveState: StoveState.IDLE,
       cookingTimer: 0
     };
+
+    // Spawn 3D Fire Extinguisher on dedicated Fire Station counter (counter_3_-3)
+    if (id === 'counter_3_-3') {
+      const extItem: KitchenItem = {
+        id: 'fire_extinguisher_main',
+        type: IngredientType.FIRE_EXTINGUISHER
+      };
+      counterData.currentItem = extItem;
+      counterData.itemHolder.add(Ingredient3DFactory.createMesh(extItem));
+    }
 
     this.counters.set(id, counterData);
     return counterData;
@@ -315,16 +388,49 @@ export class KitchenMap3D {
 
       // Dynamic Stove Burner Heat Glow when cooking
       if (c.heatRingMat) {
-        if (c.currentItem && c.stoveState !== StoveState.IDLE) {
+        if (c.isOnFire) {
+          c.heatRingMat.emissiveIntensity = 2.0 + Math.sin(now * 20) * 0.6;
+        } else if (c.currentItem && c.stoveState !== StoveState.IDLE) {
           c.heatRingMat.emissiveIntensity = 1.2 + Math.sin(now * 10) * 0.35;
         } else {
           c.heatRingMat.emissiveIntensity = 0.45;
         }
       }
 
-      // 2. 3D Floating Progress Bar for Cutting Boards & Stoves
+      // 2. Dynamic 3D Fire Animation on Burning Counters (Scales with fireIntensity!)
+      if (c.fireGroup) {
+        if (c.isOnFire && (c.fireIntensity ?? 0) > 0.01) {
+          c.fireGroup.visible = true;
+          const intensity = Math.max(0.15, Math.min(1.0, c.fireIntensity ?? 1.0));
+          const flickerX = intensity * (1.0 + Math.sin(now * 19 + c.x) * 0.12);
+          const flickerY = intensity * (1.0 + Math.cos(now * 23 + c.z) * 0.18);
+          const flickerZ = intensity * (1.0 + Math.sin(now * 17 - c.x) * 0.12);
+          c.fireGroup.scale.set(flickerX, flickerY, flickerZ);
+          c.fireGroup.rotation.y = Math.sin(now * 6 + c.x) * 0.25;
+        } else {
+          c.fireGroup.visible = false;
+        }
+      }
+
+      // 3. 3D Floating Progress Bar & Status Badges for Cutting Boards, Stoves & Fires
       if (c.progressGroup && c.progressFillMesh && c.progressFillMat) {
-        if (c.type === CounterType.CUTTING_BOARD) {
+        // Priority A: Counter is currently ON FIRE -> Show Fire Intensity / Extinguish Bar & 🔥 Badge!
+        if (c.isOnFire && (c.fireIntensity ?? 0) > 0.01) {
+          c.progressGroup.visible = true;
+          const clamped = Math.max(0.04, Math.min(1, c.fireIntensity ?? 1.0));
+          c.progressFillMesh.scale.x = clamped;
+          c.progressFillMesh.position.x = -0.34 * (1 - clamped);
+          const blink = Math.floor(Date.now() / 110) % 2 === 0;
+          c.progressFillMat.color.setHex(blink ? 0xef4444 : 0xf97316);
+
+          if (c.statusSprite) {
+            c.statusSprite.visible = true;
+            c.statusSprite.material = this.statusMaterials['DANGER'];
+            const s = 0.40 + Math.sin(now * 22) * 0.06;
+            c.statusSprite.scale.set(s, s, 1);
+          }
+        } else if (c.type === CounterType.CUTTING_BOARD) {
+          if (c.statusSprite) c.statusSprite.visible = false;
           if (c.cutProgress > 0.01 && c.cutProgress < 1.0) {
             c.progressGroup.visible = true;
             const ratio = Math.max(0.02, Math.min(1, c.cutProgress));
@@ -337,33 +443,113 @@ export class KitchenMap3D {
         } else if (c.type === CounterType.STOVE) {
           if (c.currentItem && c.stoveState !== StoveState.IDLE && c.stoveState !== StoveState.BURNT) {
             c.progressGroup.visible = true;
+            const cookDuration = CookingConfig.getCookDuration(c.currentItem.type);
+            const safeEnd = cookDuration + CookingConfig.burnTimeline.safeDuration;
+            const warnEnd = safeEnd + CookingConfig.burnTimeline.warningDuration;
+            const dangerEnd = warnEnd + CookingConfig.burnTimeline.dangerDuration;
+
             let ratio = 0;
             if (c.stoveState === StoveState.COOKING) {
-              ratio = Math.min(1, c.cookingTimer / 5.5);
-              c.progressFillMat.color.setHex(0x22c55e); // Green cooking bar
+              ratio = Math.min(1, c.cookingTimer / cookDuration);
+              c.progressFillMat.color.setHex(0x22c55e); // Green cooking bar (0 -> 100%)
+              if (c.statusSprite) c.statusSprite.visible = false;
             } else if (c.stoveState === StoveState.COOKED) {
-              ratio = Math.min(1, (c.cookingTimer - 5.5) / 3.0);
-              c.progressFillMat.color.setHex(0xfacc15); // Golden ready bar
-            } else if (c.stoveState === StoveState.BURNING) {
-              ratio = Math.min(1, (c.cookingTimer - 8.5) / 2.5);
-              const blink = Math.floor(Date.now() / 120) % 2 === 0;
-              c.progressFillMat.color.setHex(blink ? 0xef4444 : 0xf97316); // Urgent flashing red!
+              // 0–5s after cooked: Safe green bar + ✅ Checkmark icon
+              const postTime = Math.max(0, c.cookingTimer - cookDuration);
+              ratio = Math.max(0.1, 1 - postTime / CookingConfig.burnTimeline.safeDuration);
+              c.progressFillMat.color.setHex(0x10b981);
+              if (c.statusSprite) {
+                c.statusSprite.visible = true;
+                c.statusSprite.material = this.statusMaterials['COOKED'];
+                const s = 0.36 + Math.sin(now * 6) * 0.03;
+                c.statusSprite.scale.set(s, s, 1);
+              }
+            } else if (c.stoveState === StoveState.WARNING) {
+              // 5–10s after cooked: Warning amber bar + pulsing ⚠️ icon
+              const warnElapsed = Math.max(0, c.cookingTimer - safeEnd);
+              ratio = Math.min(1, warnElapsed / CookingConfig.burnTimeline.warningDuration);
+              const pulse = Math.floor(Date.now() / 240) % 2 === 0;
+              c.progressFillMat.color.setHex(pulse ? 0xf59e0b : 0xfacc15);
+              if (c.statusSprite) {
+                c.statusSprite.visible = true;
+                c.statusSprite.material = this.statusMaterials['WARNING'];
+                const s = 0.38 + Math.sin(now * 12) * 0.05;
+                c.statusSprite.scale.set(s, s, 1);
+              }
+            } else if (c.stoveState === StoveState.DANGER || c.stoveState === StoveState.BURNING) {
+              // 10–13s after cooked: Urgent flashing red bar + rapid flashing 🔥 icon
+              const dangerElapsed = Math.max(0, c.cookingTimer - warnEnd);
+              ratio = Math.min(1, dangerElapsed / Math.max(1, dangerEnd - warnEnd));
+              const blink = Math.floor(Date.now() / 110) % 2 === 0;
+              c.progressFillMat.color.setHex(blink ? 0xef4444 : 0xf97316);
+              if (c.statusSprite) {
+                c.statusSprite.visible = true;
+                c.statusSprite.material = this.statusMaterials['DANGER'];
+                const s = 0.42 + Math.sin(now * 22) * 0.07;
+                c.statusSprite.scale.set(s, s, 1);
+              }
             }
             const clamped = Math.max(0.04, Math.min(1, ratio));
             c.progressFillMesh.scale.x = clamped;
             c.progressFillMesh.position.x = -0.34 * (1 - clamped);
           } else {
             c.progressGroup.visible = false;
+            if (c.statusSprite) c.statusSprite.visible = false;
           }
+        } else {
+          c.progressGroup.visible = false;
+          if (c.statusSprite) c.statusSprite.visible = false;
         }
       }
     });
+  }
+
+  private createFireMesh3D(): THREE.Group {
+    const fireGroup = new THREE.Group();
+    fireGroup.position.set(0, 0.88, 0);
+    fireGroup.visible = false;
+
+    const outerFlameMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const midFlameMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+    const innerCoreMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+
+    // Central main flame cone
+    const mainCone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.72, 10), outerFlameMat);
+    mainCone.position.y = 0.34;
+    fireGroup.add(mainCone);
+
+    // 4 surrounding dancing flame tongues
+    const offsets = [
+      { x: -0.15, z: 0.12, h: 0.55, r: 0.18, tiltX: 0.15, tiltZ: 0.2 },
+      { x: 0.16, z: -0.10, h: 0.58, r: 0.19, tiltX: -0.15, tiltZ: -0.2 },
+      { x: -0.12, z: -0.15, h: 0.50, r: 0.17, tiltX: -0.2, tiltZ: 0.15 },
+      { x: 0.14, z: 0.14, h: 0.52, r: 0.17, tiltX: 0.18, tiltZ: -0.18 }
+    ];
+    offsets.forEach((o) => {
+      const tongue = new THREE.Mesh(new THREE.ConeGeometry(o.r, o.h, 8), midFlameMat);
+      tongue.position.set(o.x, o.h * 0.45, o.z);
+      tongue.rotation.set(o.tiltX, 0, o.tiltZ);
+      fireGroup.add(tongue);
+    });
+
+    // Bright yellow inner core
+    const coreCone = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.46, 8), innerCoreMat);
+    coreCone.position.set(0, 0.24, 0.04);
+    fireGroup.add(coreCone);
+
+    // Warm orange firelight
+    const fireLight = new THREE.PointLight(0xf97316, 1.8, 3.2);
+    fireLight.position.set(0, 0.55, 0);
+    fireGroup.add(fireLight);
+
+    return fireGroup;
   }
 
   private createProgressBar3D(): {
     progressGroup: THREE.Group;
     progressFillMesh: THREE.Mesh;
     progressFillMat: THREE.MeshBasicMaterial;
+    statusSprite: THREE.Sprite;
   } {
     const progressGroup = new THREE.Group();
     progressGroup.position.set(0, 1.45, 0);
@@ -387,7 +573,15 @@ export class KitchenMap3D {
     progressFillMesh.renderOrder = 11;
     progressGroup.add(progressFillMesh);
 
-    return { progressGroup, progressFillMesh, progressFillMat };
+    // Floating Status Badge Sprite above progress bar (✅ / ⚠️ / 🔥)
+    const statusSprite = new THREE.Sprite(this.statusMaterials['COOKED']);
+    statusSprite.position.set(0, 0.25, 0.02);
+    statusSprite.scale.set(0.36, 0.36, 1);
+    statusSprite.renderOrder = 12;
+    statusSprite.visible = false;
+    progressGroup.add(statusSprite);
+
+    return { progressGroup, progressFillMesh, progressFillMat, statusSprite };
   }
 
   private decorateCounter(
@@ -401,7 +595,25 @@ export class KitchenMap3D {
     progressGroup?: THREE.Group;
     progressFillMesh?: THREE.Mesh;
     progressFillMat?: THREE.MeshBasicMaterial;
+    statusSprite?: THREE.Sprite;
   } {
+    // Dedicated Fire Extinguisher Station on top-right counter (3, -3)
+    if (id === 'counter_3_-3') {
+      const standMat = new THREE.MeshStandardMaterial({
+        color: 0xdc2626,
+        emissive: 0x991b1b,
+        emissiveIntensity: 0.25,
+        roughness: 0.35
+      });
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 0.025, 20), standMat);
+      pad.position.y = 0.852;
+      group.add(pad);
+
+      this.createCrateSignBadge(group, '🧯', 0xdc2626);
+      this.createFloatingStationLabel(group, '🧯', 'CỨU HỎA', 0xef4444);
+      return {};
+    }
+
     // Decorative Cartoon Kitchen Appliances on non-interactive back-wall corner counters:
     // Top-left corner (-4, -3): Cartoon Commercial Refrigerator
     if (id === 'counter_-4_-3') {

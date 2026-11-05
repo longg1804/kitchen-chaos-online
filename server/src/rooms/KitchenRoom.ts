@@ -167,6 +167,20 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       this.broadcast('remote_counter_update', data, { except: client });
     });
 
+    this.onMessage('fire_update', (client, data: { id: string; isOnFire: boolean; fireIntensity: number }) => {
+      this.broadcast('remote_fire_update', data, { except: client });
+    });
+
+    this.onMessage('player_spray', (client, data: { x: number; z: number; dirX: number; dirZ: number }) => {
+      this.broadcast('remote_player_spray', {
+        id: client.sessionId,
+        x: data.x,
+        z: data.z,
+        dirX: data.dirX,
+        dirZ: data.dirZ
+      }, { except: client });
+    });
+
     this.onMessage('throw_item', (client, data: any) => {
       this.broadcast('remote_throw_item', data, { except: client });
     });
@@ -443,12 +457,13 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       this.broadcastOrders();
     }
 
+    // Rebalanced Cooking & Burn Timeline (8s raw->cooked, +5s safe, +5s warning, +3s danger = 21s burnt)
     this.state.counters.forEach((counter) => {
       if (counter.type === 'stove' && counter.item) {
         if (counter.item.type === 'raw_meat') {
           counter.cookingTimer += deltaSeconds;
           counter.stoveState = 'cooking';
-          if (counter.cookingTimer >= 5.5) {
+          if (counter.cookingTimer >= 8.0) {
             counter.item.type = 'cooked_patty';
             counter.stoveState = 'cooked';
             this.broadcast('counter_update', {
@@ -462,18 +477,27 @@ export class KitchenRoom extends Room<KitchenRoomState> {
           }
         } else if (counter.item.type === 'cooked_patty') {
           counter.cookingTimer += deltaSeconds;
-          if (counter.cookingTimer >= 8.5 && counter.stoveState !== 'burning') {
-            counter.stoveState = 'burning';
+          if (counter.cookingTimer >= 13.0 && counter.cookingTimer < 18.0 && counter.stoveState !== 'warning') {
+            counter.stoveState = 'warning';
             this.broadcast('counter_update', {
               id: counter.id,
               type: counter.type,
               item: { type: 'cooked_patty', plateContents: [] },
               cutProgress: 0,
-              stoveState: 'burning',
+              stoveState: 'warning',
               cookingTimer: counter.cookingTimer
             });
-          }
-          if (counter.cookingTimer >= 11.0 && counter.stoveState !== 'burnt') {
+          } else if (counter.cookingTimer >= 18.0 && counter.cookingTimer < 21.0 && counter.stoveState !== 'danger') {
+            counter.stoveState = 'danger';
+            this.broadcast('counter_update', {
+              id: counter.id,
+              type: counter.type,
+              item: { type: 'cooked_patty', plateContents: [] },
+              cutProgress: 0,
+              stoveState: 'danger',
+              cookingTimer: counter.cookingTimer
+            });
+          } else if (counter.cookingTimer >= 21.0 && counter.stoveState !== 'burnt') {
             counter.item.type = 'burnt_patty';
             counter.stoveState = 'burnt';
             this.broadcast('counter_update', {
@@ -482,7 +506,9 @@ export class KitchenRoom extends Room<KitchenRoomState> {
               item: { type: 'burnt_patty', plateContents: [] },
               cutProgress: 0,
               stoveState: 'burnt',
-              cookingTimer: counter.cookingTimer
+              cookingTimer: counter.cookingTimer,
+              isOnFire: true,
+              fireIntensity: 1.0
             });
           }
         }

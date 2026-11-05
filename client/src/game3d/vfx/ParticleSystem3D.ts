@@ -81,6 +81,59 @@ export class ParticleSystem3D {
     });
   }
 
+  // Rising orange/yellow fire sparks & embers on burning stations
+  public emitFireEmbers(x: number, y: number, z: number) {
+    const mat = Math.random() < 0.5 ? this.fireMat : this.starGoldMat;
+    const mesh = new THREE.Mesh(this.puffGeo, mat);
+    mesh.scale.setScalar(0.6);
+    mesh.position.set(x + (Math.random() - 0.5) * 0.35, y, z + (Math.random() - 0.5) * 0.35);
+    this.scene.add(mesh);
+
+    this.particles.push({
+      mesh,
+      velX: (Math.random() - 0.5) * 0.7,
+      velY: 1.6 + Math.random() * 1.2,
+      velZ: (Math.random() - 0.5) * 0.7,
+      life: 0,
+      maxLife: 0.55,
+      scaleSpeed: -1.2
+    });
+  }
+
+  // Pressurized white CO2 / foam spray cone from Fire Extinguisher (45° cone, 3.0 unit range)
+  public emitExtinguisherFoam(x: number, y: number, z: number, dirX: number, dirZ: number) {
+    const baseAngle = Math.atan2(dirX, dirZ);
+    const halfConeRad = (22.5 * Math.PI) / 180; // ±22.5° = 45° cone
+
+    for (let i = 0; i < 3; i++) {
+      const puffMat = new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? 0xffffff : 0xe0f2fe,
+        transparent: true,
+        opacity: 0.85
+      });
+      const mesh = new THREE.Mesh(this.puffGeo, puffMat);
+      mesh.position.set(
+        x + dirX * 0.35 + (Math.random() - 0.5) * 0.08,
+        y + (Math.random() - 0.5) * 0.08,
+        z + dirZ * 0.35 + (Math.random() - 0.5) * 0.08
+      );
+      this.scene.add(mesh);
+
+      const sprayAngle = baseAngle + (Math.random() * 2 - 1) * halfConeRad;
+      const speed = 5.2 + Math.random() * 2.2;
+
+      this.particles.push({
+        mesh,
+        velX: Math.sin(sprayAngle) * speed,
+        velY: (Math.random() - 0.35) * 0.9,
+        velZ: Math.cos(sprayAngle) * speed,
+        life: 0,
+        maxLife: 0.42,
+        scaleSpeed: 3.4
+      });
+    }
+  }
+
   // Crumbs flying off during cutting / chopping
   public emitChopCrumbs(x: number, y: number, z: number) {
     for (let i = 0; i < 4; i++) {

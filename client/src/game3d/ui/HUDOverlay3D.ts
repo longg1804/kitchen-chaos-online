@@ -608,7 +608,7 @@ export class HUDOverlay3D {
       backdrop-filter: blur(4px);
       white-space: nowrap;
     `;
-    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt (Dash) &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném &nbsp;|&nbsp; <b>[P]</b> Chụp ảnh';
+    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt (Dash) &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt / Nấu / Phun bọt 🧯 &nbsp;|&nbsp; <b>[Q]</b> Ném &nbsp;|&nbsp; <b>[P]</b> Chụp ảnh';
     this.container.appendChild(hint);
   }
 
