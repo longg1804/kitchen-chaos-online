@@ -101,21 +101,6 @@ export class GameScene extends Phaser.Scene {
         this.game.canvas.style.display = 'block';
       }
     });
-
-    // Fallback/Legacy 2D systems initialized for safety
-    AssetGenerator.generateAll(this);
-    this.createKitchenMap();
-    this.recipeManager = new RecipeManager();
-    const sound = SoundManager.getInstance();
-    this.player = new Player(this, 540, 278, this.currentSkin);
-    this.physics.add.collider(this.player.sprite, this.counterGroup);
-    this.setupDesktopInputs();
-    this.mobileControls = new MobileControls(this);
-    this.setupHUD();
-
-    if (this.isMultiplayer && this.network.room) {
-      this.setupMultiplayerSync();
-    }
   }
 
   private setupMultiplayerSync() {

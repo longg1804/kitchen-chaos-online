@@ -120,12 +120,12 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }, { except: client });
     });
 
-    // Dash Synchronization with Anti-Spam Server Cooldown
+    // Dash Synchronization with Anti-Spam Server Cooldown (220ms dash + 400ms cooldown = 620ms cycle)
     const lastDashMap = new Map<string, number>();
     this.onMessage('player_dash', (client, data: { dirX: number; dirZ: number; duration: number }) => {
       const now = Date.now();
       const last = lastDashMap.get(client.sessionId) || 0;
-      if (now - last < 1300) {
+      if (now - last < 450) {
         return;
       }
       lastDashMap.set(client.sessionId, now);
@@ -134,7 +134,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         id: client.sessionId,
         dirX: data.dirX,
         dirZ: data.dirZ,
-        duration: data.duration || 0.28
+        duration: data.duration || 0.22
       }, { except: client });
     });
 

@@ -407,16 +407,25 @@ export class HUDOverlay3D {
     this.container.appendChild(btnContainer);
   }
 
-  public updateDashCooldown(remainingSeconds: number, _totalCooldown: number) {
+  public updateDashCooldown(remainingSeconds: number, totalCooldown: number) {
     if (!this.dashBtnEl) return;
-    if (remainingSeconds > 0) {
-      this.dashBtnEl.style.opacity = '0.5';
-      this.dashBtnEl.style.filter = 'grayscale(50%)';
-      this.dashBtnEl.innerHTML = `<span style="font-size: 13px;">${remainingSeconds.toFixed(1)}s</span>`;
+    const ringEl = this.dashBtnEl.querySelector('.dash-cooldown-ring') as HTMLElement | null;
+    if (remainingSeconds > 0 && totalCooldown > 0) {
+      const progress = Math.max(0, Math.min(1, 1 - remainingSeconds / totalCooldown));
+      const deg = Math.round(progress * 360);
+      this.dashBtnEl.style.opacity = '0.68';
+      this.dashBtnEl.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.35)';
+      if (ringEl) {
+        ringEl.style.background = `conic-gradient(#38bdf8 ${deg}deg, rgba(15, 23, 42, 0.75) ${deg}deg)`;
+        ringEl.style.opacity = '1';
+      }
     } else {
       this.dashBtnEl.style.opacity = '1.0';
-      this.dashBtnEl.style.filter = 'none';
-      this.dashBtnEl.innerHTML = '⚡<br>LƯỚT';
+      this.dashBtnEl.style.boxShadow = '0 0 16px rgba(99, 102, 241, 0.85), 0 4px 14px rgba(0, 0, 0, 0.4)';
+      if (ringEl) {
+        ringEl.style.background = 'conic-gradient(#a5b4fc 360deg, transparent 360deg)';
+        ringEl.style.opacity = '0';
+      }
     }
   }
 
@@ -429,8 +438,10 @@ export class HUDOverlay3D {
     onHold?: (pressed: boolean) => void
   ): HTMLElement {
     const btn = document.createElement('button');
-    btn.innerHTML = html;
+    btn.type = 'button';
+    btn.tabIndex = -1;
     btn.style.cssText = `
+      position: relative;
       width: ${size}px;
       height: ${size}px;
       border-radius: 50%;
@@ -445,30 +456,68 @@ export class HUDOverlay3D {
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
       user-select: none;
       -webkit-user-select: none;
-      touch-action: manipulation;
-      transition: transform 0.1s;
+      touch-action: none;
+      outline: none;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.08s, opacity 0.12s, box-shadow 0.15s;
     `;
 
-    const press = (e: Event) => {
+    const ring = document.createElement('div');
+    ring.className = 'dash-cooldown-ring';
+    ring.style.cssText = `
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0;
+      mix-blend-mode: screen;
+    `;
+    btn.appendChild(ring);
+
+    const label = document.createElement('span');
+    label.style.cssText = 'position: relative; z-index: 2; pointer-events: none;';
+    label.innerHTML = html;
+    btn.appendChild(label);
+
+    let activePointerId: number | null = null;
+
+    const press = (e: PointerEvent) => {
       e.preventDefault();
-      btn.style.transform = 'scale(0.92)';
+      e.stopPropagation();
+      btn.blur();
+      if (activePointerId !== null) return;
+      activePointerId = e.pointerId;
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch (_) {}
+      btn.style.transform = 'scale(0.90)';
       btn.style.background = activeColor;
       onTap();
       if (onHold) onHold(true);
     };
 
-    const release = (e: Event) => {
+    const release = (e: PointerEvent) => {
       e.preventDefault();
+      e.stopPropagation();
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      activePointerId = null;
       btn.style.transform = 'scale(1)';
       btn.style.background = color;
       if (onHold) onHold(false);
     };
 
-    btn.addEventListener('touchstart', press, { passive: false });
-    btn.addEventListener('touchend', release);
-    btn.addEventListener('mousedown', press);
-    btn.addEventListener('mouseup', release);
-    btn.addEventListener('mouseleave', release);
+    btn.addEventListener('pointerdown', press, { passive: false });
+    btn.addEventListener('pointerup', release, { passive: false });
+    btn.addEventListener('pointercancel', release, { passive: false });
+    btn.addEventListener('lostpointercapture', release, { passive: false });
+    // Prevent keyboard Space/Enter from ever activating the button
+    btn.addEventListener('keydown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
 
     return btn;
   }

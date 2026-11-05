@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { CounterType, KitchenItem, StoveState } from '../../game/types';
+import { CounterType, IngredientType, KitchenItem, StoveState } from '../../game/types';
 import { MaterialFactory } from './MaterialFactory';
 import { Physics3D } from '../core/Physics3D';
 import { TextureGenerator3D } from './TextureGenerator3D';
+import { Ingredient3DFactory } from '../entities/Ingredient3D';
 
 export interface Counter3DData {
   id: string;
@@ -11,7 +12,11 @@ export interface Counter3DData {
   z: number;
   group: THREE.Group;
   itemHolder: THREE.Group;
-  progressBarMesh?: THREE.Mesh;
+  crateDisplayGroup?: THREE.Group;
+  bounceTimer?: number;
+  progressGroup?: THREE.Group;
+  progressFillMesh?: THREE.Mesh;
+  progressFillMat?: THREE.MeshBasicMaterial;
   currentItem?: KitchenItem | null;
   cutProgress: number;
   stoveState: StoveState;
@@ -240,7 +245,7 @@ export class KitchenMap3D {
     group.add(itemHolder);
 
     // Equipment on top based on Type
-    this.decorateCounter(group, type);
+    const extraRefs = this.decorateCounter(group, type);
 
     this.scene.add(group);
     this.physics.addBox(id, x, z, 1.0, 1.0);
@@ -252,6 +257,11 @@ export class KitchenMap3D {
       z,
       group,
       itemHolder,
+      crateDisplayGroup: extraRefs.crateDisplayGroup,
+      bounceTimer: 0,
+      progressGroup: extraRefs.progressGroup,
+      progressFillMesh: extraRefs.progressFillMesh,
+      progressFillMat: extraRefs.progressFillMat,
       cutProgress: 0,
       stoveState: StoveState.IDLE,
       cookingTimer: 0
@@ -261,7 +271,109 @@ export class KitchenMap3D {
     return counterData;
   }
 
-  private decorateCounter(group: THREE.Group, type: CounterType) {
+  public triggerCounterBounce(counterId: string) {
+    const c = this.counters.get(counterId);
+    if (c) {
+      c.bounceTimer = 0.22;
+    }
+  }
+
+  public updateStations(delta: number) {
+    this.counters.forEach((c) => {
+      // 1. Crate / Counter interaction bounce feedback
+      if (c.bounceTimer && c.bounceTimer > 0) {
+        c.bounceTimer = Math.max(0, c.bounceTimer - delta);
+        const t = c.bounceTimer / 0.22;
+        const pulse = 1 + Math.sin(t * Math.PI) * 0.14;
+        if (c.crateDisplayGroup) {
+          c.crateDisplayGroup.scale.set(pulse, pulse, pulse);
+        } else {
+          c.itemHolder.scale.set(pulse, pulse, pulse);
+        }
+      } else {
+        if (c.crateDisplayGroup) {
+          c.crateDisplayGroup.scale.set(1, 1, 1);
+        }
+        c.itemHolder.scale.set(1, 1, 1);
+      }
+
+      // 2. 3D Floating Progress Bar for Cutting Boards & Stoves
+      if (c.progressGroup && c.progressFillMesh && c.progressFillMat) {
+        if (c.type === CounterType.CUTTING_BOARD) {
+          if (c.cutProgress > 0.01 && c.cutProgress < 1.0) {
+            c.progressGroup.visible = true;
+            const ratio = Math.max(0.02, Math.min(1, c.cutProgress));
+            c.progressFillMesh.scale.x = ratio;
+            c.progressFillMesh.position.x = -0.34 * (1 - ratio);
+            c.progressFillMat.color.setHex(0x22c55e);
+          } else {
+            c.progressGroup.visible = false;
+          }
+        } else if (c.type === CounterType.STOVE) {
+          if (c.currentItem && c.stoveState !== StoveState.IDLE && c.stoveState !== StoveState.BURNT) {
+            c.progressGroup.visible = true;
+            let ratio = 0;
+            if (c.stoveState === StoveState.COOKING) {
+              ratio = Math.min(1, c.cookingTimer / 5.5);
+              c.progressFillMat.color.setHex(0x22c55e); // Green cooking bar
+            } else if (c.stoveState === StoveState.COOKED) {
+              ratio = Math.min(1, (c.cookingTimer - 5.5) / 3.0);
+              c.progressFillMat.color.setHex(0xfacc15); // Golden ready bar
+            } else if (c.stoveState === StoveState.BURNING) {
+              ratio = Math.min(1, (c.cookingTimer - 8.5) / 2.5);
+              const blink = Math.floor(Date.now() / 120) % 2 === 0;
+              c.progressFillMat.color.setHex(blink ? 0xef4444 : 0xf97316); // Urgent flashing red!
+            }
+            const clamped = Math.max(0.04, Math.min(1, ratio));
+            c.progressFillMesh.scale.x = clamped;
+            c.progressFillMesh.position.x = -0.34 * (1 - clamped);
+          } else {
+            c.progressGroup.visible = false;
+          }
+        }
+      }
+    });
+  }
+
+  private createProgressBar3D(): {
+    progressGroup: THREE.Group;
+    progressFillMesh: THREE.Mesh;
+    progressFillMat: THREE.MeshBasicMaterial;
+  } {
+    const progressGroup = new THREE.Group();
+    progressGroup.position.set(0, 1.45, 0);
+    // Tilt slightly toward the Overcooked top-down oblique camera
+    progressGroup.rotation.x = -0.85;
+    progressGroup.visible = false;
+
+    const bgMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.74, 0.13),
+      new THREE.MeshBasicMaterial({ color: 0x0f172a, depthTest: false })
+    );
+    bgMesh.renderOrder = 10;
+    progressGroup.add(bgMesh);
+
+    const progressFillMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, depthTest: false });
+    const progressFillMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.68, 0.08),
+      progressFillMat
+    );
+    progressFillMesh.position.z = 0.002;
+    progressFillMesh.renderOrder = 11;
+    progressGroup.add(progressFillMesh);
+
+    return { progressGroup, progressFillMesh, progressFillMat };
+  }
+
+  private decorateCounter(
+    group: THREE.Group,
+    type: CounterType
+  ): {
+    crateDisplayGroup?: THREE.Group;
+    progressGroup?: THREE.Group;
+    progressFillMesh?: THREE.Mesh;
+    progressFillMat?: THREE.MeshBasicMaterial;
+  } {
     // 1. CUTTING BOARD
     if (type === CounterType.CUTTING_BOARD) {
       const boardGeo = new THREE.BoxGeometry(0.74, 0.05, 0.58);
@@ -277,7 +389,7 @@ export class KitchenMap3D {
 
       // Stainless Steel Chef Knife angled on board
       const knifeGroup = new THREE.Group();
-      knifeGroup.position.set(0.18, 0.90, 0.16);
+      knifeGroup.position.set(0.24, 0.90, 0.22);
       knifeGroup.rotation.y = -Math.PI / 6;
 
       // Steel Blade
@@ -297,6 +409,10 @@ export class KitchenMap3D {
       knifeGroup.add(handle);
 
       group.add(knifeGroup);
+
+      const prog = this.createProgressBar3D();
+      group.add(prog.progressGroup);
+      return prog;
     }
     // 2. STOVE & FRYING PAN
     else if (type === CounterType.STOVE) {
@@ -350,6 +466,10 @@ export class KitchenMap3D {
       panGroup.add(panHandle);
 
       group.add(panGroup);
+
+      const prog = this.createProgressBar3D();
+      group.add(prog.progressGroup);
+      return prog;
     }
     // 3. DELIVERY WINDOW COUNTER
     else if (type === CounterType.DELIVERY) {
@@ -393,6 +513,7 @@ export class KitchenMap3D {
       bellDome.position.set(-0.35, 0.88, 0.32);
       bellDome.castShadow = true;
       group.add(bellDome);
+      return {};
     }
     // 4. COMMERCIAL PEDAL TRASH CAN
     else if (type === CounterType.TRASH) {
@@ -420,61 +541,148 @@ export class KitchenMap3D {
       const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.12), lidMat);
       pedal.position.set(0, 0.04, 0.40);
       group.add(pedal);
+      return {};
     }
-    // 5. WOODEN INGREDIENT CRATES WITH FRONT ICON BADGES
+    // 5. REDESIGNED 3-LAYER INGREDIENT STORAGE STATIONS (Open Crate + 3D Piled Models + Floating Signboard)
     else if (type.startsWith('crate_')) {
-      // Slatted Wooden Crate
-      const crateBox = new THREE.Mesh(
-        new THREE.BoxGeometry(0.82, 0.32, 0.82),
-        new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.75 })
-      );
-      crateBox.position.y = 0.96;
-      crateBox.castShadow = true;
-      group.add(crateBox);
+      const crateDisplayGroup = new THREE.Group();
+      crateDisplayGroup.position.set(0, 0.84, 0);
+      group.add(crateDisplayGroup);
 
-      // Inside fill base
       let badgeColor = 0xd97706;
-      let badgeLabel = '🍞';
+      let badgeEmoji = '🍞';
+      let stationTitle = 'BÁNH MÌ';
+      let itemType = IngredientType.BREAD;
+      let linerColor = 0xfef3c7; // Warm bakery cloth
 
       if (type === CounterType.CRATE_MEAT) {
-        badgeColor = 0xdc2626;
-        badgeLabel = '🥩';
+        badgeColor = 0xef4444;
+        badgeEmoji = '🥩';
+        stationTitle = 'THỊT BÒ';
+        itemType = IngredientType.RAW_MEAT;
+        linerColor = 0xe0f2fe; // Chilled butcher ice tray
       } else if (type === CounterType.CRATE_LETTUCE) {
         badgeColor = 0x22c55e;
-        badgeLabel = '🥬';
+        badgeEmoji = '🥬';
+        stationTitle = 'XÀ LÁCH';
+        itemType = IngredientType.LETTUCE;
+        linerColor = 0xdcfce7; // Fresh produce liner
       } else if (type === CounterType.CRATE_TOMATO) {
-        badgeColor = 0xef4444;
-        badgeLabel = '🍅';
+        badgeColor = 0xf43f5e;
+        badgeEmoji = '🍅';
+        stationTitle = 'CÀ CHUA';
+        itemType = IngredientType.TOMATO;
+        linerColor = 0xfef2f2;
       } else if (type === CounterType.CRATE_CHEESE) {
         badgeColor = 0xfacc15;
-        badgeLabel = '🧀';
+        badgeEmoji = '🧀';
+        stationTitle = 'PHÔ MAI';
+        itemType = IngredientType.CHEESE;
+        linerColor = 0xfef9c3;
       } else if (type === CounterType.CRATE_PLATE) {
-        badgeColor = 0xffffff;
-        badgeLabel = '🍽️';
+        badgeColor = 0x38bdf8;
+        badgeEmoji = '🍽️';
+        stationTitle = 'ĐĨA SỨ';
+        itemType = IngredientType.PLATE;
+        linerColor = 0x334155;
       }
 
-      // Top contents bed
-      const fillMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.74, 0.12, 0.74),
-        new THREE.MeshStandardMaterial({ color: badgeColor, roughness: 0.4 })
-      );
-      fillMesh.position.y = 1.06;
-      group.add(fillMesh);
+      // Layer 1: Open-Top Slatted Wooden Crate / Display Rim with Color-Coded Accent Trim
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.7 });
+      const accentMat = new THREE.MeshStandardMaterial({
+        color: badgeColor,
+        roughness: 0.35,
+        emissive: badgeColor,
+        emissiveIntensity: 0.15
+      });
+      const linerMat = new THREE.MeshStandardMaterial({ color: linerColor, roughness: 0.5 });
 
-      // Front 3D Badge Sign facing the player!
-      this.createCrateSignBadge(group, badgeLabel, badgeColor);
+      // Inner bed floor
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.78), linerMat);
+      bed.position.y = 0.03;
+      bed.receiveShadow = true;
+      crateDisplayGroup.add(bed);
 
-      // For plate crate: show a neat stack of white ceramic plates!
+      // 4 Open Crate Walls (so interior is recessed and holds piled 3D ingredients)
+      const wallH = 0.18;
+      const wallFront = new THREE.Mesh(new THREE.BoxGeometry(0.86, wallH, 0.06), woodMat);
+      wallFront.position.set(0, wallH / 2, 0.40);
+      wallFront.castShadow = true;
+      crateDisplayGroup.add(wallFront);
+
+      const wallBack = new THREE.Mesh(new THREE.BoxGeometry(0.86, wallH, 0.06), woodMat);
+      wallBack.position.set(0, wallH / 2, -0.40);
+      wallBack.castShadow = true;
+      crateDisplayGroup.add(wallBack);
+
+      const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, wallH, 0.74), woodMat);
+      wallLeft.position.set(-0.40, wallH / 2, 0);
+      wallLeft.castShadow = true;
+      crateDisplayGroup.add(wallLeft);
+
+      const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.06, wallH, 0.74), woodMat);
+      wallRight.position.set(0.40, wallH / 2, 0);
+      wallRight.castShadow = true;
+      crateDisplayGroup.add(wallRight);
+
+      // Color-coded top rim strips around the crate perimeter for instant visual identification
+      const rimFront = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.035, 0.07), accentMat);
+      rimFront.position.set(0, wallH + 0.015, 0.40);
+      crateDisplayGroup.add(rimFront);
+
+      const rimBack = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.035, 0.07), accentMat);
+      rimBack.position.set(0, wallH + 0.015, -0.40);
+      crateDisplayGroup.add(rimBack);
+
+      const rimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.035, 0.76), accentMat);
+      rimLeft.position.set(-0.40, wallH + 0.015, 0);
+      crateDisplayGroup.add(rimLeft);
+
+      const rimRight = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.035, 0.76), accentMat);
+      rimRight.position.set(0.40, wallH + 0.015, 0);
+      crateDisplayGroup.add(rimRight);
+
+      // Layer 2: Abundant 3D Ingredient Models Piled Inside the Crate!
       if (type === CounterType.CRATE_PLATE) {
-        const plateMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.1 });
-        for (let p = 0; p < 4; p++) {
-          const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.25, 0.03, 18), plateMat);
-          pMesh.position.set(0, 1.12 + p * 0.04, 0);
+        const plateMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.12, metalness: 0.15 });
+        const rimBlueMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2 });
+        for (let p = 0; p < 5; p++) {
+          const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 0.035, 22), plateMat);
+          pMesh.position.set(0, 0.08 + p * 0.042, 0);
           pMesh.castShadow = true;
-          group.add(pMesh);
+          crateDisplayGroup.add(pMesh);
+
+          const pRim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.012, 8, 22), rimBlueMat);
+          pRim.rotation.x = Math.PI / 2;
+          pRim.position.set(0, 0.095 + p * 0.042, 0);
+          crateDisplayGroup.add(pRim);
         }
+      } else {
+        // Place 4 actual 3D ingredient models arranged naturally in the crate
+        const placements = [
+          { x: -0.16, y: 0.06, z: -0.14, rotY: 0.2, tiltZ: 0.1, scale: 0.72 },
+          { x: 0.16, y: 0.06, z: -0.14, rotY: 1.4, tiltZ: -0.1, scale: 0.72 },
+          { x: -0.15, y: 0.07, z: 0.15, rotY: 2.5, tiltZ: 0.08, scale: 0.74 },
+          { x: 0.15, y: 0.07, z: 0.15, rotY: 3.8, tiltZ: -0.08, scale: 0.74 },
+          { x: 0.0, y: 0.16, z: 0.0, rotY: 0.7, tiltZ: 0.05, scale: 0.82 } // Hero top item in center!
+        ];
+        placements.forEach((pl) => {
+          const sample = Ingredient3DFactory.createMeshFromType(itemType);
+          sample.position.set(pl.x, pl.y, pl.z);
+          sample.rotation.set(0, pl.rotY, pl.tiltZ);
+          sample.scale.setScalar(pl.scale);
+          crateDisplayGroup.add(sample);
+        });
       }
+
+      // Layer 3: Front Icon Badge + High-Contrast Floating 3D Label Signboard
+      this.createCrateSignBadge(group, badgeEmoji, badgeColor);
+      this.createFloatingStationLabel(group, badgeEmoji, stationTitle, badgeColor);
+
+      return { crateDisplayGroup };
     }
+
+    return {};
   }
 
   private createCrateSignBadge(group: THREE.Group, emoji: string, color: number) {
@@ -484,13 +692,13 @@ export class KitchenMap3D {
     const ctx = canvas.getContext('2d')!;
 
     // Circle badge background
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.arc(64, 64, 58, 0, Math.PI * 2);
     ctx.fill();
 
     // Colored border
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 10;
     ctx.strokeStyle = `#${color.toString(16).padStart(6, '0')}`;
     ctx.stroke();
 
@@ -502,9 +710,52 @@ export class KitchenMap3D {
 
     const texture = new THREE.CanvasTexture(canvas);
     const badgeMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-    const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.38), badgeMat);
+    const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.40), badgeMat);
     // Position on front face of counter (Z = +0.475)
-    badge.position.set(0, 0.58, 0.485);
+    badge.position.set(0, 0.56, 0.485);
     group.add(badge);
+  }
+
+  private createFloatingStationLabel(group: THREE.Group, emoji: string, title: string, color: number) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 80;
+    const ctx = canvas.getContext('2d')!;
+
+    const hexColor = `#${color.toString(16).padStart(6, '0')}`;
+
+    // Rounded pill sign background
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(6, 6, 244, 68, 22);
+      ctx.fill();
+    } else {
+      ctx.fillRect(6, 6, 244, 68);
+    }
+
+    // Vibrant station-color border
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = hexColor;
+    ctx.stroke();
+
+    // Emoji + bold station name
+    ctx.font = '900 30px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${emoji} ${title}`, 128, 42);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false
+    });
+    const labelSprite = new THREE.Sprite(spriteMat);
+    labelSprite.position.set(0, 1.48, -0.15);
+    labelSprite.scale.set(1.05, 0.33, 1);
+    labelSprite.renderOrder = 5;
+    group.add(labelSprite);
   }
 }

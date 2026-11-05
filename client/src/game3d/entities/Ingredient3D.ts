@@ -230,174 +230,307 @@ export class Ingredient3DFactory {
     }
   }
 
-  // 2. BRIOCHE BREAD BUN (Bottom at y = 0)
+  // 2. BRIOCHE BREAD BUN (Bottom at y = 0) - Distinct golden crust, crumb base, score cuts & sesame seeds
   private static buildBread(group: THREE.Group, isChopped: boolean) {
-    if (isChopped) {
-      // Bottom half
-      const bot = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.05, 18), this.breadCrustMat);
-      bot.position.y = 0.025;
-      bot.castShadow = true;
-      group.add(bot);
+    // Lighter golden-cream bottom base ring
+    const baseRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 0.23, 0.06, 20),
+      this.breadCrumbMat
+    );
+    baseRing.position.y = 0.03;
+    baseRing.castShadow = true;
+    group.add(baseRing);
 
-      // Top dome separated slightly
+    if (isChopped) {
+      // Top dome separated slightly showing soft interior crumb
       const top = new THREE.Mesh(
-        new THREE.SphereGeometry(0.24, 18, 12, 0, Math.PI * 2, 0, Math.PI / 1.8),
+        new THREE.SphereGeometry(0.25, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.8),
         this.breadCrustMat
       );
-      top.position.y = 0.08;
+      top.position.set(0.03, 0.08, 0);
       top.castShadow = true;
       group.add(top);
     } else {
-      // Golden Brioche Bun
+      // Plump Golden Brioche Crown
       const bun = new THREE.Mesh(
-        new THREE.SphereGeometry(0.25, 18, 14, 0, Math.PI * 2, 0, Math.PI / 1.7),
+        new THREE.SphereGeometry(0.26, 22, 16, 0, Math.PI * 2, 0, Math.PI / 1.75),
         this.breadCrustMat
       );
-      bun.position.y = 0.03;
+      bun.position.y = 0.05;
+      bun.scale.set(1.08, 0.88, 0.96);
       bun.castShadow = true;
       group.add(bun);
 
+      // 3 Bakery Score Cuts across top crust (very recognizable from top-down camera)
+      for (let c = -1; c <= 1; c++) {
+        const scoreCut = new THREE.Mesh(
+          new THREE.BoxGeometry(0.22, 0.022, 0.032),
+          this.breadCrumbMat
+        );
+        scoreCut.position.set(0, 0.255 - Math.abs(c) * 0.015, c * 0.085);
+        scoreCut.rotation.y = 0.25;
+        group.add(scoreCut);
+      }
+
       // Sesame seeds
-      const sGeo = new THREE.SphereGeometry(0.015, 6, 6);
-      for (let i = 0; i < 7; i++) {
+      const sGeo = new THREE.SphereGeometry(0.018, 6, 6);
+      for (let i = 0; i < 8; i++) {
         const seed = new THREE.Mesh(sGeo, this.sesameMat);
-        const ang = (i / 7) * Math.PI * 2;
-        seed.position.set(Math.cos(ang) * 0.13, 0.18, Math.sin(ang) * 0.13);
+        const ang = (i / 8) * Math.PI * 2;
+        seed.scale.set(1.4, 0.7, 1);
+        seed.position.set(Math.cos(ang) * 0.15, 0.21, Math.sin(ang) * 0.14);
         group.add(seed);
       }
     }
   }
 
-  // 3. BEEF PATTY (Bottom at y = 0)
+  // 3. BEEF STEAK / PATTY (Bottom at y = 0)
   private static buildMeat(group: THREE.Group, state: 'raw' | 'cooked' | 'burnt') {
     if (state === 'raw') {
-      // Raw Marbled Steak Cutlet
-      const steak = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.25, 0.07, 16), this.rawMeatMat);
-      steak.position.y = 0.035;
-      steak.castShadow = true;
-      group.add(steak);
+      // Distinct Ribeye Steak silhouette (main lobe + secondary lobe + white fat rim + T-bone)
+      const steakGroup = new THREE.Group();
 
-      // White fat marbling stripes
+      // Outer white fat cap rim
+      const fatCap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.265, 0.265, 0.072, 20),
+        this.fatMarblingMat
+      );
+      fatCap.scale.set(1.12, 1, 0.88);
+      fatCap.position.y = 0.036;
+      fatCap.castShadow = true;
+      steakGroup.add(fatCap);
+
+      // Rich crimson raw beef interior
+      const steak = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.24, 0.078, 20),
+        this.rawMeatMat
+      );
+      steak.scale.set(1.1, 1, 0.85);
+      steak.position.set(0.01, 0.039, 0);
+      steak.castShadow = true;
+      steakGroup.add(steak);
+
+      // White bone eye & marbling streaks on top surface (y = 0.08)
+      const boneRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.082, 12),
+        this.boneMat
+      );
+      boneRing.position.set(-0.11, 0.041, -0.03);
+      steakGroup.add(boneRing);
+
       for (let f = -1; f <= 1; f++) {
-        const fat = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.005, 0.04), this.fatMarblingMat);
-        fat.rotation.y = f * 0.4;
-        fat.position.set(f * 0.06, 0.071, 0);
-        steak.add(fat);
+        const fat = new THREE.Mesh(
+          new THREE.BoxGeometry(0.26, 0.008, 0.028),
+          this.fatMarblingMat
+        );
+        fat.rotation.y = 0.35 + f * 0.25;
+        fat.position.set(0.03, 0.079, f * 0.065);
+        steakGroup.add(fat);
       }
+
+      group.add(steakGroup);
     } else {
-      // Cooked or Burnt Patty
+      // Cooked or Burnt Burger Patty
       const mat = state === 'cooked' ? this.cookedMeatMat : this.burntMeatMat;
-      const patty = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.065, 18), mat);
-      patty.position.y = 0.0325;
+      const patty = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.26, 0.08, 22), mat);
+      patty.position.y = 0.04;
       patty.castShadow = true;
       group.add(patty);
 
       if (state === 'cooked') {
-        // Scored grill marks
-        for (let g = -1; g <= 1; g++) {
-          const mark = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.005, 0.025), this.grillMarkMat);
+        // Prominent raised char-grill sear marks across the top
+        for (let g = -1.5; g <= 1.5; g += 1) {
+          const mark = new THREE.Mesh(
+            new THREE.BoxGeometry(0.36, 0.012, 0.026),
+            this.grillMarkMat
+          );
           mark.rotation.y = Math.PI / 4;
-          mark.position.set(0, 0.033, g * 0.09);
-          patty.add(mark);
+          mark.position.set(0, 0.082, g * 0.065);
+          group.add(mark);
+        }
+      } else {
+        // Burnt carbonized chunks on top
+        for (let b = 0; b < 5; b++) {
+          const ash = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.045, 0),
+            this.grillMarkMat
+          );
+          const ang = (b / 5) * Math.PI * 2;
+          ash.position.set(Math.cos(ang) * 0.12, 0.08, Math.sin(ang) * 0.12);
+          group.add(ash);
         }
       }
     }
   }
 
-  // 4. LETTUCE (Bottom at y = 0)
+  // 4. LETTUCE (Bottom at y = 0) - Multi-layered open leafy rosette (never a plain sphere!)
   private static buildLettuce(group: THREE.Group, isChopped: boolean) {
     if (isChopped) {
-      // Crisp ruffled salad leaves
-      for (let i = 0; i < 5; i++) {
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.02, 0.14), this.lettuceLeafMat);
-        leaf.rotation.y = (i * Math.PI) / 3;
-        leaf.position.set((Math.random() - 0.5) * 0.05, 0.015 + i * 0.022, (Math.random() - 0.5) * 0.05);
+      // Crisp pile of shredded salad ribbons in two shades of green
+      for (let i = 0; i < 8; i++) {
+        const mat = i % 2 === 0 ? this.lettuceLeafMat : this.lettuceLightMat;
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.024, 0.09), mat);
+        const angle = (i / 8) * Math.PI * 2;
+        leaf.rotation.set(0.15 * Math.sin(i), angle, 0.12 * Math.cos(i));
+        leaf.position.set(
+          Math.cos(angle) * 0.07,
+          0.02 + (i % 4) * 0.022,
+          Math.sin(angle) * 0.07
+        );
         leaf.castShadow = true;
         group.add(leaf);
       }
     } else {
-      // Plump layered cabbage head
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 14, 14), this.lettuceHeadMat);
-      head.position.y = 0.23;
-      head.castShadow = true;
-      group.add(head);
+      // Open rosette of 7 outer ruffled leaves + 5 inner leaves + bright heart core
+      for (let i = 0; i < 7; i++) {
+        const angle = (i / 7) * Math.PI * 2;
+        const outerLeaf = new THREE.Mesh(
+          new THREE.SphereGeometry(0.16, 12, 10),
+          i % 2 === 0 ? this.lettuceHeadMat : this.lettuceLeafMat
+        );
+        outerLeaf.scale.set(1.25, 0.38, 0.85);
+        outerLeaf.position.set(Math.cos(angle) * 0.14, 0.09, Math.sin(angle) * 0.14);
+        outerLeaf.rotation.y = -angle;
+        outerLeaf.rotation.z = 0.45;
+        outerLeaf.castShadow = true;
+        group.add(outerLeaf);
+      }
 
-      // Outer wrapping leaves
-      const outerMat = this.lettuceLightMat;
-      const wrap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.24, 12, 12, 0, Math.PI * 1.6, 0, Math.PI / 1.4),
-        outerMat
-      );
-      wrap.position.y = 0.23;
-      group.add(wrap);
+      for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2 + 0.3;
+        const innerLeaf = new THREE.Mesh(
+          new THREE.SphereGeometry(0.14, 12, 10),
+          this.lettuceLeafMat
+        );
+        innerLeaf.scale.set(1.1, 0.55, 0.85);
+        innerLeaf.position.set(Math.cos(angle) * 0.09, 0.16, Math.sin(angle) * 0.09);
+        innerLeaf.rotation.y = -angle;
+        innerLeaf.rotation.z = 0.7;
+        innerLeaf.castShadow = true;
+        group.add(innerLeaf);
+      }
+
+      // Crisp light-green lettuce heart bud in center
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), this.lettuceLightMat);
+      core.scale.set(1, 0.95, 1);
+      core.position.y = 0.17;
+      core.castShadow = true;
+      group.add(core);
     }
   }
 
-  // 5. TOMATO (Bottom at y = 0)
+  // 5. TOMATO (Bottom at y = 0) - Plump segmented body with large 5-pointed green leaf calyx
   private static buildTomato(group: THREE.Group, isChopped: boolean) {
     if (isChopped) {
-      // Two thick juicy slices
-      for (let i = 0; i < 2; i++) {
-        const slice = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.04, 18), this.tomatoGlossMat);
-        slice.position.y = 0.02 + i * 0.05;
+      // Three overlapping juicy tomato slices fanned out clearly
+      const offsets = [
+        { x: -0.07, y: 0.02, z: 0.04 },
+        { x: 0.07, y: 0.045, z: -0.03 },
+        { x: 0, y: 0.07, z: 0.02 }
+      ];
+      offsets.forEach((pos) => {
+        const slice = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.032, 20), this.tomatoGlossMat);
+        slice.position.set(pos.x, pos.y, pos.z);
         slice.castShadow = true;
         group.add(slice);
 
-        // Pulp & seed chambers
-        const pulp = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.042, 6), this.tomatoPulpMat);
+        const pulp = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.035, 16), this.tomatoPulpMat);
         slice.add(pulp);
 
-        // Seed specks
-        for (let s = 0; s < 4; s++) {
+        for (let s = 0; s < 5; s++) {
           const seed = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), this.tomatoSeedMat);
-          const ang = (s / 4) * Math.PI * 2;
-          seed.position.set(Math.cos(ang) * 0.08, 0.022, Math.sin(ang) * 0.08);
+          const ang = (s / 5) * Math.PI * 2;
+          seed.position.set(Math.cos(ang) * 0.085, 0.018, Math.sin(ang) * 0.085);
           slice.add(seed);
         }
-      }
+      });
     } else {
-      // Whole glossy red tomato
-      const tom = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), this.tomatoGlossMat);
-      tom.position.y = 0.22;
+      // Plump slightly flattened vine tomato
+      const tom = new THREE.Mesh(new THREE.SphereGeometry(0.25, 20, 16), this.tomatoGlossMat);
+      tom.scale.set(1.06, 0.84, 1.06);
+      tom.position.y = 0.20;
       tom.castShadow = true;
       group.add(tom);
 
-      // Green star calyx & stem
-      const calyxGeo = new THREE.ConeGeometry(0.08, 0.04, 5);
-      const calyx = new THREE.Mesh(calyxGeo, this.stemGreenMat);
-      calyx.position.set(0, 0.44, 0);
-      calyx.rotation.x = Math.PI;
-      group.add(calyx);
+      // 5-Pointed Green Star Sepals (Calyx) radiating on top
+      for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        const sepal = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.022, 0.045), this.stemGreenMat);
+        sepal.position.set(Math.cos(angle) * 0.08, 0.395, Math.sin(angle) * 0.08);
+        sepal.rotation.y = -angle;
+        sepal.rotation.z = -0.18;
+        group.add(sepal);
+      }
 
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.08), this.stemGreenMat);
-      stem.position.set(0, 0.46, 0);
+      // Green vine stem in center
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.032, 0.09, 8), this.stemGreenMat);
+      stem.position.set(0, 0.43, 0);
+      stem.rotation.z = 0.15;
       group.add(stem);
     }
   }
 
-  // 6. CHEDDAR CHEESE (Bottom at y = 0)
+  // 6. SWISS / CHEDDAR CHEESE (Bottom at y = 0) - Distinct triangular wedge with cheese holes
   private static buildCheese(group: THREE.Group, isChopped: boolean) {
     if (isChopped) {
-      // Square slice
-      const slice = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.34), this.cheeseMat);
-      slice.position.y = 0.015;
-      slice.castShadow = true;
-      group.add(slice);
+      // Two golden cheese slices fanned at an angle with Swiss holes
+      for (let s = 0; s < 2; s++) {
+        const slice = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.028, 0.34), this.cheeseMat);
+        slice.position.set(s * 0.03 - 0.015, 0.015 + s * 0.028, 0);
+        slice.rotation.y = s * 0.35;
+        slice.castShadow = true;
+
+        // Characteristic cheese holes on top of slice
+        const holePositions = [
+          [-0.08, 0.06],
+          [0.07, -0.05],
+          [-0.02, -0.08]
+        ];
+        holePositions.forEach(([hx, hz]) => {
+          const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 12), this.cheeseHoleMat);
+          hole.position.set(hx, 0.002, hz);
+          slice.add(hole);
+        });
+
+        group.add(slice);
+      }
     } else {
-      // Triangular wedge block
+      // Classic triangular Swiss cheese wedge centered on origin
       const wedgeShape = new THREE.Shape();
-      wedgeShape.moveTo(0, 0);
-      wedgeShape.lineTo(0.35, 0);
-      wedgeShape.lineTo(0, 0.35);
+      wedgeShape.moveTo(-0.22, -0.16);
+      wedgeShape.lineTo(0.24, -0.16);
+      wedgeShape.lineTo(-0.22, 0.22);
       wedgeShape.closePath();
 
-      const extrudeSettings = { depth: 0.18, bevelEnabled: true, bevelSegments: 3, steps: 1, bevelSize: 0.015, bevelThickness: 0.015 };
+      const extrudeSettings = {
+        depth: 0.18,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        steps: 1,
+        bevelSize: 0.012,
+        bevelThickness: 0.012
+      };
       const wedgeGeo = new THREE.ExtrudeGeometry(wedgeShape, extrudeSettings);
       const wedge = new THREE.Mesh(wedgeGeo, this.cheeseMat);
       wedge.rotation.x = -Math.PI / 2;
-      wedge.position.set(-0.15, 0, 0.1);
+      wedge.position.set(0.04, 0.012, 0.02);
       wedge.castShadow = true;
       group.add(wedge);
+
+      // Characteristic dark-gold Swiss holes on the top surface
+      const holes = [
+        { x: -0.08, z: -0.04, r: 0.042 },
+        { x: 0.06, z: -0.08, r: 0.034 },
+        { x: -0.10, z: 0.08, r: 0.032 }
+      ];
+      holes.forEach((h) => {
+        const holeMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(h.r, h.r, 0.02, 14),
+          this.cheeseHoleMat
+        );
+        holeMesh.position.set(h.x, 0.198, h.z);
+        group.add(holeMesh);
+      });
     }
   }
 

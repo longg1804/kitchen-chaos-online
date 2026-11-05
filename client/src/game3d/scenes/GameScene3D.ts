@@ -43,15 +43,21 @@ export class GameScene3D {
   private heldItem: KitchenItem | null = null;
   private heldItemMesh: THREE.Group | null = null;
 
-  // Dash System
+  // Dash System (Overcooked 2 Responsive Dash: 220ms dash, 400ms cooldown after dash ends)
   private isDashing = false;
   private dashTimer = 0;
-  private readonly dashDuration = 0.28; // 280ms
-  private readonly dashCooldown = 1.6; // 1.6s cooldown
+  private readonly dashDuration = 0.22; // 220ms
+  private readonly dashCooldown = 0.40; // 400ms cooldown starting AFTER dash finishes
   private dashCooldownTimer = 0;
-  private readonly dashSpeedMultiplier = 2.2;
+  private readonly dashSpeedMultiplier = 2.15;
   private dashDirection = { x: 0, z: 1 };
   private dashParticleTimer = 0;
+
+  // Bound event listeners for clean teardown (prevents duplicate listeners)
+  private boundKeyDown!: (e: KeyboardEvent) => void;
+  private boundKeyUp!: (e: KeyboardEvent) => void;
+  private boundBlur!: () => void;
+  private boundResize!: () => void;
 
   // Remote Players
   private remotePlayers = new Map<string, { chef: ChefCharacter3D; targetX: number; targetZ: number; heldMesh?: THREE.Group }>();
@@ -141,7 +147,8 @@ export class GameScene3D {
     rimLight.position.set(-6, 9, -7);
     this.scene.add(rimLight);
 
-    window.addEventListener('resize', this.onResize.bind(this));
+    this.boundResize = this.onResize.bind(this);
+    window.addEventListener('resize', this.boundResize);
   }
 
   private initGame() {
@@ -160,12 +167,18 @@ export class GameScene3D {
     this.localPlayer.group.position.set(this.playerPos.x, 0, this.playerPos.z);
     this.scene.add(this.localPlayer.group);
 
-    // Highlight ring indicator for facing counter
-    const ringGeo = new THREE.RingGeometry(0.35, 0.45, 24);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
+    // Subtle square outer perimeter highlight around targeted counter (never occludes food items!)
+    const ringGeo = new THREE.RingGeometry(0.64, 0.71, 4);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
     this.targetCounterHighlight = new THREE.Mesh(ringGeo, ringMat);
     this.targetCounterHighlight.rotation.x = -Math.PI / 2;
-    this.targetCounterHighlight.position.y = 0.88;
+    this.targetCounterHighlight.rotation.z = Math.PI / 4; // Align 4-sided ring into square border
+    this.targetCounterHighlight.position.y = 0.842;
     this.targetCounterHighlight.visible = false;
     this.scene.add(this.targetCounterHighlight);
 
@@ -184,19 +197,52 @@ export class GameScene3D {
   }
 
   private setupInputs() {
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
+    this.boundKeyDown = (e: KeyboardEvent) => {
+      // Ignore keyboard shortcuts if typing in an input element
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Edge-detection: ignore key-repeat events when holding down a key!
+      if (e.repeat || this.keys[e.code]) {
+        return;
+      }
+
       this.keys[e.code] = true;
       this.sound.init(); // Initialize audio on first keypress
 
-      if (e.code === 'KeyE') this.handlePickupDrop();
-      if (e.code === 'KeyQ') this.handleThrow();
-      if (e.code === 'KeyP') this.takeScreenshot();
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyK') this.handleDash();
-    });
+      // Strict, non-overlapping action bindings:
+      // [E] = Pick Up / Drop ONLY
+      // [Shift] = Dash ONLY
+      // [Q] = Throw ONLY
+      // [P] = Screenshot ONLY
+      if (e.code === 'KeyE') {
+        e.preventDefault();
+        this.handlePickupDrop();
+      } else if (e.code === 'KeyQ') {
+        e.preventDefault();
+        this.handleThrow();
+      } else if (e.code === 'KeyP') {
+        e.preventDefault();
+        this.takeScreenshot();
+      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        e.preventDefault();
+        this.handleDash();
+      }
+    };
 
-    window.addEventListener('keyup', (e: KeyboardEvent) => {
+    this.boundKeyUp = (e: KeyboardEvent) => {
       this.keys[e.code] = false;
-    });
+    };
+
+    this.boundBlur = () => {
+      // Clear held keys when window loses focus to prevent stuck movement/actions
+      this.keys = {};
+    };
+
+    window.addEventListener('keydown', this.boundKeyDown);
+    window.addEventListener('keyup', this.boundKeyUp);
+    window.addEventListener('blur', this.boundBlur);
   }
 
   private setupMultiplayerSync() {
@@ -216,55 +262,70 @@ export class GameScene3D {
 
       r.targetX = data.x;
       r.targetZ = data.y;
-      if (data.facingX !== undefined && data.facingZ !== undefined) {
-        const angle = Math.atan2(data.facingX, data.facingZ);
+      const fZ = data.facingZ !== undefined ? data.facingZ : data.facingY;
+      if (data.facingX !== undefined && fZ !== undefined) {
+        const angle = Math.atan2(data.facingX, fZ);
         r.chef.setRotation(angle);
       }
     });
 
     // 2. Remote held item update
-    room.onMessage('remote_held_update', (data: { id: string; item: KitchenItem | null }) => {
+    const handleHeldSync = (data: { id: string; item?: KitchenItem | null; heldItem?: KitchenItem | null }) => {
       if (data.id === this.network.mySessionId) return;
       const r = this.remotePlayers.get(data.id);
       if (!r) return;
 
-      r.chef.isHoldingItem = (data.item !== null);
+      const syncedItem = data.item !== undefined ? data.item : (data.heldItem ?? null);
+      r.chef.isHoldingItem = (syncedItem !== null);
 
       if (r.heldMesh) {
         r.chef.handAnchor.remove(r.heldMesh);
         r.heldMesh = undefined;
       }
 
-      if (data.item) {
-        r.heldMesh = Ingredient3DFactory.createMesh(data.item);
+      if (syncedItem) {
+        r.heldMesh = Ingredient3DFactory.createMesh(syncedItem);
         r.heldMesh.position.set(0, 0, 0);
         r.chef.handAnchor.add(r.heldMesh);
       }
-    });
+    };
+    room.onMessage('remote_held_update', handleHeldSync);
+    room.onMessage('held_update', handleHeldSync);
 
     // Remote player dash broadcast
     room.onMessage('remote_player_dash', (data: { id: string; dirX: number; dirZ: number; duration: number }) => {
       const r = this.remotePlayers.get(data.id);
       if (r) {
-        r.chef.triggerDash(data.duration || 0.28);
+        r.chef.triggerDash(data.duration || this.dashDuration);
         this.sound.playDash();
         this.particles.emitDashDust(r.chef.group.position.x, 0, r.chef.group.position.z, data.dirX, data.dirZ);
       }
     });
 
     // 3. Remote counter update
-    room.onMessage('remote_counter_update', (data: { id: string; item: KitchenItem | null; stoveState?: StoveState }) => {
+    const handleCounterSync = (data: {
+      id: string;
+      item: KitchenItem | null;
+      cutProgress?: number;
+      stoveState?: StoveState;
+      cookingTimer?: number;
+    }) => {
       const counter = this.map.counters.get(data.id);
       if (!counter) return;
 
       counter.itemHolder.clear();
       counter.currentItem = data.item;
+      if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
+      if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
+      if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
 
       if (data.item) {
         const mesh = Ingredient3DFactory.createMesh(data.item);
         counter.itemHolder.add(mesh);
       }
-    });
+    };
+    room.onMessage('remote_counter_update', handleCounterSync);
+    room.onMessage('counter_update', handleCounterSync);
 
     // 4. Remote thrown item
     room.onMessage('remote_throw_item', (data: { item: KitchenItem; fromX: number; fromZ: number; toX: number; toZ: number }) => {
@@ -275,13 +336,20 @@ export class GameScene3D {
     });
 
     // 5. Score & orders sync from host
-    room.onMessage('remote_score_update', (data: { score: number; combo: number }) => {
+    const handleScoreSync = (data: { score: number; combo: number }) => {
       this.recipeManager.score = data.score;
       this.recipeManager.combo = data.combo;
-    });
+    };
+    room.onMessage('remote_score_update', handleScoreSync);
+    room.onMessage('score_update', handleScoreSync);
 
     room.onMessage('remote_orders_update', (data: { orders: any[] }) => {
       this.hud.updateOrders(data.orders);
+    });
+    room.onMessage('orders_update', (orders: any[]) => {
+      if (Array.isArray(orders)) {
+        this.hud.updateOrders(orders);
+      }
     });
   }
 
@@ -313,8 +381,8 @@ export class GameScene3D {
     this.hud.updateScoreAndTimer(this.recipeManager.score, this.recipeManager.combo, this.matchTimeRemaining);
     this.hud.updateOrders(this.recipeManager.getOrders());
 
-    // Dash Cooldown Update
-    if (this.dashCooldownTimer > 0) {
+    // Dash Cooldown Update (only ticks when not currently dashing)
+    if (!this.isDashing && this.dashCooldownTimer > 0) {
       this.dashCooldownTimer -= delta;
       if (this.dashCooldownTimer < 0) this.dashCooldownTimer = 0;
     }
@@ -323,17 +391,19 @@ export class GameScene3D {
     // 3. Local Player Movement & Physics
     this.handleMovement(delta);
 
-    // 4. Stoves & Chopping Logic
+    // 4. Stoves, Chopping & Station 3D Progress Bars
     this.updateKitchenSimulation(delta);
+    this.map.updateStations(delta);
 
     // 5. Thrown items in flight
     for (let i = this.thrownItems.length - 1; i >= 0; i--) {
-      const item = this.thrownItems[i];
-      const done = item.update(delta);
+      const thrown = this.thrownItems[i];
+      const done = thrown.update(delta);
       if (done) {
-        this.scene.remove(item.mesh);
+        this.scene.remove(thrown.mesh);
         this.thrownItems.splice(i, 1);
-        this.particles.emitChopCrumbs(item.targetX, 0.88, item.targetZ);
+        this.particles.emitChopCrumbs(thrown.targetX, 0.88, thrown.targetZ);
+        this.landThrownItem(thrown.item, thrown.targetX, thrown.targetZ);
       }
     }
 
@@ -366,11 +436,11 @@ export class GameScene3D {
   }
 
   private handleMovement(delta: number) {
-    // Handle Active Dash Movement
+    // Handle Active Dash Movement (220ms burst with smooth deceleration & zero recovery freeze)
     if (this.isDashing) {
       this.dashTimer -= delta;
       this.dashParticleTimer += delta;
-      if (this.dashParticleTimer >= 0.05) {
+      if (this.dashParticleTimer >= 0.045) {
         this.dashParticleTimer = 0;
         this.particles.emitDashDust(this.playerPos.x, 0, this.playerPos.z, this.dashDirection.x, this.dashDirection.z);
       }
@@ -378,9 +448,14 @@ export class GameScene3D {
       if (this.dashTimer <= 0) {
         this.isDashing = false;
         this.dashTimer = 0;
+        // Cooldown (0.40s) starts AFTER Dash finishes!
+        this.dashCooldownTimer = this.dashCooldown;
       }
 
-      const dashSpeed = this.playerSpeed * this.dashSpeedMultiplier;
+      // Smooth cubic ease-out deceleration toward the end of the dash
+      const progress = Math.max(0, Math.min(1, 1 - this.dashTimer / this.dashDuration));
+      const dynamicMultiplier = 1 + (this.dashSpeedMultiplier - 1) * (1 - progress * progress * 0.45);
+      const dashSpeed = this.playerSpeed * dynamicMultiplier;
       const nextX = this.playerPos.x + this.dashDirection.x * dashSpeed * delta;
       const nextZ = this.playerPos.z + this.dashDirection.z * dashSpeed * delta;
 
@@ -455,7 +530,7 @@ export class GameScene3D {
     this.currentFacingCounter = closest;
 
     if (closest) {
-      this.targetCounterHighlight.position.set(closest.x, 0.88, closest.z);
+      this.targetCounterHighlight.position.set(closest.x, 0.842, closest.z);
       this.targetCounterHighlight.visible = true;
     } else {
       this.targetCounterHighlight.visible = false;
@@ -466,55 +541,62 @@ export class GameScene3D {
     const isActionPressed = this.keys['Space'] || this.hud.inputs.isActionPressed;
 
     this.map.counters.forEach(c => {
-      // 1. CUTTING BOARD
+      // 1. CUTTING BOARD (Normalized 0..1 progress for 3D floating progress bar)
       if (c.type === CounterType.CUTTING_BOARD) {
         if (this.currentFacingCounter === c && isActionPressed && c.currentItem) {
           // If item can be sliced
-          if (c.currentItem.type === IngredientType.RAW_MEAT ||
-              c.currentItem.type === IngredientType.LETTUCE ||
+          if (c.currentItem.type === IngredientType.LETTUCE ||
               c.currentItem.type === IngredientType.TOMATO ||
               c.currentItem.type === IngredientType.CHEESE) {
             this.localPlayer.currentAnim = 'chop';
-            c.cutProgress += delta * 50; // Takes 2 seconds
+            c.cutProgress += delta * 0.55; // ~1.8 seconds to slice
             this.sound.playChop();
             this.particles.emitChopCrumbs(c.x, 0.95, c.z);
 
-            if (c.cutProgress >= 100) {
+            if (c.cutProgress >= 1.0) {
               c.cutProgress = 0;
               this.transformSlicedIngredient(c.currentItem);
               // Update 3D mesh on board
               c.itemHolder.clear();
               c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+              this.map.triggerCounterBounce(c.id);
               this.broadcastCounterUpdate(c);
             }
           }
         }
       }
 
-      // 2. STOVE
+      // 2. STOVE (Cooking -> Cooked -> Burning warning -> Burnt!)
       if (c.type === CounterType.STOVE && c.currentItem) {
         if (c.currentItem.type === IngredientType.RAW_MEAT || c.currentItem.type === IngredientType.COOKED_PATTY) {
           c.cookingTimer += delta;
           this.sound.playSizzle();
           this.particles.emitSteam(c.x, 0.96, c.z);
 
-          // After 4s -> COOKED
-          if (c.cookingTimer >= 4 && c.currentItem.type === IngredientType.RAW_MEAT) {
-            c.currentItem.type = IngredientType.COOKED_PATTY;
-            c.stoveState = StoveState.COOKED;
-            c.itemHolder.clear();
-            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
-            this.broadcastCounterUpdate(c);
-          }
-
-          // After 10s -> BURNT!
-          if (c.cookingTimer >= 10 && c.currentItem.type === IngredientType.COOKED_PATTY) {
-            c.currentItem.type = IngredientType.BURNT_PATTY;
-            c.stoveState = StoveState.BURNT;
-            this.particles.emitBurntSmoke(c.x, 0.96, c.z);
-            c.itemHolder.clear();
-            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
-            this.broadcastCounterUpdate(c);
+          if (c.currentItem.type === IngredientType.RAW_MEAT) {
+            c.stoveState = StoveState.COOKING;
+            // After 5.5s -> COOKED
+            if (c.cookingTimer >= 5.5) {
+              c.currentItem.type = IngredientType.COOKED_PATTY;
+              c.stoveState = StoveState.COOKED;
+              c.itemHolder.clear();
+              c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+              this.map.triggerCounterBounce(c.id);
+              this.broadcastCounterUpdate(c);
+            }
+          } else if (c.currentItem.type === IngredientType.COOKED_PATTY) {
+            if (c.cookingTimer >= 8.5 && c.cookingTimer < 11.0) {
+              c.stoveState = StoveState.BURNING;
+            }
+            // After 11s -> BURNT!
+            if (c.cookingTimer >= 11.0) {
+              c.currentItem.type = IngredientType.BURNT_PATTY;
+              c.stoveState = StoveState.BURNT;
+              this.particles.emitBurntSmoke(c.x, 0.96, c.z);
+              c.itemHolder.clear();
+              c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+              this.broadcastCounterUpdate(c);
+            }
           }
         }
       }
@@ -543,11 +625,11 @@ export class GameScene3D {
   }
 
   private handleDash() {
+    // Only allow Dash when not already dashing and cooldown has finished
     if (this.isDashing || this.dashCooldownTimer > 0) return;
 
     this.isDashing = true;
     this.dashTimer = this.dashDuration;
-    this.dashCooldownTimer = this.dashCooldown;
 
     // Movement direction or facing direction
     let moveX = 0;
@@ -568,6 +650,7 @@ export class GameScene3D {
       this.dashDirection = { ...this.facingDir };
     }
 
+    this.facingDir = { ...this.dashDirection };
     this.localPlayer.setRotation(Math.atan2(this.dashDirection.x, this.dashDirection.z));
     this.localPlayer.triggerDash(this.dashDuration);
     this.sound.playDash();
@@ -608,6 +691,7 @@ export class GameScene3D {
           type: spawnType,
           plateContents: spawnType === IngredientType.PLATE ? [] : undefined
         });
+        this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
       }
       return;
@@ -655,6 +739,7 @@ export class GameScene3D {
       counter.cutProgress = 0;
       counter.stoveState = StoveState.IDLE;
       counter.itemHolder.clear();
+      this.map.triggerCounterBounce(counter.id);
       this.sound.playPickup();
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && !counter.currentItem) {
@@ -667,9 +752,14 @@ export class GameScene3D {
       }
 
       counter.currentItem = this.heldItem;
+      if (counter.type === CounterType.STOVE && this.heldItem.type === IngredientType.RAW_MEAT) {
+        counter.stoveState = StoveState.COOKING;
+        counter.cookingTimer = 0;
+      }
       const mesh = Ingredient3DFactory.createMesh(this.heldItem);
       counter.itemHolder.add(mesh);
       this.setHeldItem(null);
+      this.map.triggerCounterBounce(counter.id);
       this.sound.playDrop();
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && counter.currentItem) {
@@ -682,6 +772,7 @@ export class GameScene3D {
         counter.itemHolder.clear();
         counter.itemHolder.add(Ingredient3DFactory.createMesh(counter.currentItem));
         this.setHeldItem(null);
+        this.map.triggerCounterBounce(counter.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(counter);
       } else if (this.heldItem.type === IngredientType.PLATE && counter.currentItem.type !== IngredientType.PLATE) {
@@ -690,10 +781,39 @@ export class GameScene3D {
         this.heldItem.plateContents.push(counter.currentItem.type);
 
         counter.currentItem = null;
+        counter.cookingTimer = 0;
+        counter.stoveState = StoveState.IDLE;
         counter.itemHolder.clear();
         this.updateHeldMesh();
+        this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
         this.broadcastCounterUpdate(counter);
+      }
+    }
+  }
+
+  private landThrownItem(item: KitchenItem, x: number, z: number) {
+    let closest: Counter3DData | null = null;
+    let minDist = 0.85;
+    for (const c of this.map.counters.values()) {
+      const d = Math.hypot(c.x - x, c.z - z);
+      if (d < minDist) {
+        minDist = d;
+        closest = c;
+      }
+    }
+
+    if (closest && !closest.type.startsWith('crate_') && closest.type !== CounterType.TRASH && closest.type !== CounterType.DELIVERY) {
+      if (!closest.currentItem) {
+        if (closest.type === CounterType.STOVE && item.type !== IngredientType.RAW_MEAT && item.type !== IngredientType.COOKED_PATTY) {
+          return;
+        }
+        closest.currentItem = item;
+        closest.itemHolder.clear();
+        closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
+        this.map.triggerCounterBounce(closest.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(closest);
       }
     }
   }
@@ -750,7 +870,9 @@ export class GameScene3D {
       this.network.room.send('counter_update', {
         id: counter.id,
         item: counter.currentItem,
-        stoveState: counter.stoveState
+        cutProgress: counter.cutProgress,
+        stoveState: counter.stoveState,
+        cookingTimer: counter.cookingTimer
       });
     }
   }
@@ -786,7 +908,10 @@ export class GameScene3D {
 
   public destroy() {
     this.isRunning = false;
-    window.removeEventListener('resize', this.onResize.bind(this));
+    if (this.boundResize) window.removeEventListener('resize', this.boundResize);
+    if (this.boundKeyDown) window.removeEventListener('keydown', this.boundKeyDown);
+    if (this.boundKeyUp) window.removeEventListener('keyup', this.boundKeyUp);
+    if (this.boundBlur) window.removeEventListener('blur', this.boundBlur);
 
     if (this.hud) {
       this.hud.destroy();
