@@ -3,6 +3,18 @@ import { MaterialFactory } from '../environment/MaterialFactory';
 
 export type ChefSkinId = 'chef_classic' | 'chef_panda' | 'chef_fox' | 'chef_robot';
 
+export type ChefAnimState =
+  | 'IDLE'
+  | 'WALK'
+  | 'DASH'
+  | 'CARRY'
+  | 'CHOP'
+  | 'COOK'
+  | 'THROW'
+  | 'PICKUP'
+  | 'DROP'
+  | 'CELEBRATE';
+
 export class ChefCharacter3D {
   public group: THREE.Group;
   public skin: ChefSkinId;
@@ -21,12 +33,21 @@ export class ChefCharacter3D {
   public handAnchor!: THREE.Group;
   public nameSprite!: THREE.Sprite;
 
-  // Animation states
-  public currentAnim: 'idle' | 'walk' | 'chop' | 'celebrate' | 'fail' = 'idle';
+  // Unified Layered Animation State Machine
+  public state: ChefAnimState = 'IDLE';
   public isHoldingItem: boolean = false;
   public isDashing: boolean = false;
+  public isChopping: boolean = false;
+  public isCooking: boolean = false;
+
+  // Timers for one-shot actions (PICKUP, DROP, THROW, CELEBRATE)
+  private oneShotState: 'PICKUP' | 'DROP' | 'THROW' | 'CELEBRATE' | null = null;
+  private oneShotTimer: number = 0;
+  private oneShotDuration: number = 0.25;
+
   private dashTimer: number = 0;
-  private animTimer: number = 0;
+  private walkCycleTimer: number = 0;
+  private workCycleTimer: number = 0;
   private targetRotation: number = 0;
 
   constructor(skin: ChefSkinId = 'chef_classic', playerName: string = 'Chef', isHost: boolean = false) {
@@ -293,15 +314,42 @@ export class ChefCharacter3D {
     this.targetRotation = angleRad;
   }
 
-  public triggerDash(duration: number = 0.28) {
+  public triggerDash(duration: number = 0.22) {
     this.isDashing = true;
     this.dashTimer = duration;
+    this.isChopping = false;
+    this.isCooking = false;
+  }
+
+  /**
+   * Triggers a timed one-shot upper/full-body animation (PICKUP, DROP, THROW, CELEBRATE)
+   * that automatically returns to IDLE / WALK / CARRY when completed.
+   */
+  public playOneShot(action: 'PICKUP' | 'DROP' | 'THROW' | 'CELEBRATE', duration?: number) {
+    this.oneShotState = action;
+    this.oneShotDuration = duration ?? (action === 'CELEBRATE' ? 0.85 : action === 'THROW' ? 0.26 : 0.18);
+    this.oneShotTimer = this.oneShotDuration;
   }
 
   public update(delta: number, isMoving: boolean) {
-    this.animTimer += delta * 10;
+    const blend = Math.min(1, delta * 18);
 
-    // Dash timer countdown
+    // If moving, automatically cancel stationary CHOP / COOK animations!
+    if (isMoving) {
+      this.isChopping = false;
+      this.isCooking = false;
+      this.walkCycleTimer += delta * 12;
+    } else {
+      this.walkCycleTimer = 0;
+    }
+
+    if (this.isChopping || this.isCooking) {
+      this.workCycleTimer += delta * 18;
+    } else {
+      this.workCycleTimer = 0;
+    }
+
+    // 1. Update timers
     if (this.isDashing) {
       this.dashTimer -= delta;
       if (this.dashTimer <= 0) {
@@ -310,105 +358,258 @@ export class ChefCharacter3D {
       }
     }
 
-    // Smooth rotation towards movement direction
+    if (this.oneShotTimer > 0) {
+      this.oneShotTimer -= delta;
+      if (this.oneShotTimer <= 0) {
+        this.oneShotTimer = 0;
+        this.oneShotState = null;
+      }
+    }
+
+    // 2. Smooth rotation towards target facing angle
     let diff = this.targetRotation - this.group.rotation.y;
-    // Normalize diff to [-PI, PI]
     while (diff < -Math.PI) diff += Math.PI * 2;
     while (diff > Math.PI) diff -= Math.PI * 2;
     this.group.rotation.y += diff * Math.min(1, delta * 18);
 
-    // Apply procedural animations based on state
+    // 3. Determine active Animation State (Priority Hierarchy)
     if (this.isDashing) {
-      this.knifeMesh.visible = false;
-      // High-speed aerodynamic dash pose (Squash & stretch, forward lean)
-      this.group.position.y = 0.04;
-      this.bodyMesh.rotation.x = 0.42; // Strong forward charge
-      this.bodyMesh.scale.set(0.9, 0.85, 1.25);
-      this.headGroup.rotation.x = 0.3;
-      this.chefHat.rotation.x = -0.35; // Hat blown backward by wind!
-
-      if (this.isHoldingItem) {
-        // Tightly clutch food in front
-        this.leftHand.position.set(-0.18, 0.45, 0.35);
-        this.rightHand.position.set(0.18, 0.45, 0.35);
-        this.handAnchor.position.set(0, 0.45, 0.40);
-      } else {
-        // Naruto / sonic sprint arms swept back!
-        this.leftHand.position.set(-0.30, 0.25, -0.25);
-        this.rightHand.position.set(0.30, 0.25, -0.25);
-      }
-      return;
-    }
-
-    // Reset scales from dash
-    this.bodyMesh.scale.set(1, 1, 1);
-    this.chefHat.rotation.x = 0;
-
-    if (this.currentAnim === 'chop') {
-      // Rapid chopping rhythm!
-      this.knifeMesh.visible = true;
-      const chopCycle = Math.sin(this.animTimer * 2.5);
-      this.rightHand.position.y = 0.32 + chopCycle * 0.12;
-      this.rightHand.position.z = 0.25 - chopCycle * 0.05;
-      this.leftHand.position.set(-0.15, 0.30, 0.32);
-      this.bodyMesh.rotation.x = 0.15; // Leaning into the cutting board
-      this.headGroup.rotation.x = 0.2;
-    } else if (this.currentAnim === 'celebrate') {
-      this.knifeMesh.visible = false;
-      // Happy jump and hands up!
-      const jump = Math.abs(Math.sin(this.animTimer * 1.5)) * 0.25;
-      this.group.position.y = jump;
-      this.leftHand.position.set(-0.35, 0.65, 0.1);
-      this.rightHand.position.set(0.35, 0.65, 0.1);
-      this.chefHat.rotation.z = Math.sin(this.animTimer) * 0.15;
+      this.state = 'DASH';
+    } else if (this.oneShotState) {
+      this.state = this.oneShotState;
+    } else if (this.isChopping && !isMoving) {
+      this.state = 'CHOP';
+    } else if (this.isCooking && !isMoving) {
+      this.state = 'COOK';
+    } else if (this.isHoldingItem) {
+      this.state = 'CARRY';
     } else if (isMoving) {
-      this.knifeMesh.visible = false;
-      this.currentAnim = 'walk';
-      // Overcooked signature waddle!
-      const waddle = Math.sin(this.animTimer * 1.2);
-      this.group.position.y = Math.abs(waddle) * 0.06;
-      this.bodyMesh.rotation.z = waddle * 0.12;
-      this.headGroup.rotation.z = -waddle * 0.08;
-
-      // Feet swinging
-      this.leftFoot.position.z = Math.sin(this.animTimer * 1.2) * 0.15;
-      this.rightFoot.position.z = -Math.sin(this.animTimer * 1.2) * 0.15;
-
-      if (this.isHoldingItem) {
-        // Holding item stably with two hands up in front!
-        this.leftHand.position.set(-0.20, 0.46, 0.32);
-        this.rightHand.position.set(0.20, 0.46, 0.32);
-        this.handAnchor.position.set(0, 0.46, 0.38);
-      } else {
-        // Hands swinging opposite to feet
-        this.leftHand.position.set(-0.32, 0.32, -waddle * 0.15);
-        this.rightHand.position.set(0.32, 0.32, waddle * 0.15);
-      }
+      this.state = 'WALK';
     } else {
-      this.knifeMesh.visible = false;
-      this.currentAnim = 'idle';
-      // Breathing bob
-      const breath = Math.sin(this.animTimer * 0.3);
-      this.group.position.y = 0;
-      this.bodyMesh.scale.set(1 + breath * 0.02, 1 - breath * 0.02, 1 + breath * 0.02);
-      this.headGroup.position.y = 0.68 + breath * 0.015;
-      this.leftFoot.position.z = 0;
-      this.rightFoot.position.z = 0;
+      this.state = 'IDLE';
+    }
 
-      if (this.isHoldingItem) {
-        // Standing proud holding item
-        this.leftHand.position.set(-0.20, 0.46 + breath * 0.01, 0.32);
-        this.rightHand.position.set(0.20, 0.46 + breath * 0.01, 0.32);
-        this.handAnchor.position.set(0, 0.46 + breath * 0.01, 0.38);
-      } else {
-        this.leftHand.position.set(-0.32, 0.32 + breath * 0.01, 0.1);
-        this.rightHand.position.set(0.32, 0.32 + breath * 0.01, 0.1);
+    // Target transforms for smooth blending (single authority per frame!)
+    let targetGroupY = 0;
+    let targetBodyRotX = 0;
+    let targetBodyRotZ = 0;
+    let targetBodyScaleX = 1;
+    let targetBodyScaleY = 1;
+    let targetBodyScaleZ = 1;
+    let targetHeadRotX = 0;
+    let targetHeadRotZ = 0;
+    let targetHatRotX = 0;
+    let targetHatRotZ = 0;
+
+    let targetLFootZ = 0;
+    let targetRFootZ = 0;
+
+    let targetLHandX = -0.32;
+    let targetLHandY = 0.32;
+    let targetLHandZ = 0.08;
+
+    let targetRHandX = 0.32;
+    let targetRHandY = 0.32;
+    let targetRHandZ = 0.08;
+
+    let targetAnchorX = 0;
+    let targetAnchorY = 0.46;
+    let targetAnchorZ = 0.38;
+
+    let showKnife = false;
+
+    // 4. Lower Body Layer (Locomotion)
+    if (this.state === 'DASH') {
+      targetGroupY = 0.04;
+      targetLFootZ = -0.14;
+      targetRFootZ = 0.14;
+    } else if (this.state === 'CELEBRATE') {
+      const jump = Math.abs(Math.sin(this.oneShotTimer * 14)) * 0.22;
+      targetGroupY = jump;
+    } else if (isMoving) {
+      const waddle = Math.sin(this.walkCycleTimer);
+      targetGroupY = Math.abs(waddle) * 0.055;
+      targetBodyRotZ = waddle * 0.10;
+      targetHeadRotZ = -waddle * 0.07;
+      targetLFootZ = waddle * 0.15;
+      targetRFootZ = -waddle * 0.15;
+    }
+
+    // 5. Upper Body Layer (Actions, Carry & Idle)
+    switch (this.state) {
+      case 'DASH': {
+        targetBodyRotX = 0.38;
+        targetBodyScaleX = 0.92;
+        targetBodyScaleY = 0.88;
+        targetBodyScaleZ = 1.20;
+        targetHeadRotX = 0.26;
+        targetHatRotX = -0.32;
+        if (this.isHoldingItem) {
+          targetLHandX = -0.19;
+          targetLHandY = 0.45;
+          targetLHandZ = 0.35;
+          targetRHandX = 0.19;
+          targetRHandY = 0.45;
+          targetRHandZ = 0.35;
+          targetAnchorY = 0.45;
+          targetAnchorZ = 0.40;
+        } else {
+          targetLHandX = -0.30;
+          targetLHandY = 0.26;
+          targetLHandZ = -0.24;
+          targetRHandX = 0.30;
+          targetRHandY = 0.26;
+          targetRHandZ = -0.24;
+        }
+        break;
       }
 
-      this.bodyMesh.rotation.z = 0;
-      this.headGroup.rotation.z = 0;
-      this.bodyMesh.rotation.x = 0;
-      this.headGroup.rotation.x = 0;
+      case 'CHOP': {
+        showKnife = true;
+        const chopWave = Math.sin(this.workCycleTimer * 1.45);
+        // Left hand holds ingredient steady on board; right hand chops rhythmically with knife
+        targetLHandX = -0.16;
+        targetLHandY = 0.38;
+        targetLHandZ = 0.32;
+
+        targetRHandX = 0.18;
+        targetRHandY = 0.42 + chopWave * 0.11;
+        targetRHandZ = 0.30 - chopWave * 0.04;
+
+        targetBodyRotX = 0.16;
+        targetHeadRotX = 0.22;
+        break;
+      }
+
+      case 'COOK': {
+        // Stirring / pan-tossing motion at stove
+        const stirAngle = this.workCycleTimer * 1.1;
+        targetLHandX = -0.24;
+        targetLHandY = 0.36;
+        targetLHandZ = 0.22;
+
+        targetRHandX = 0.20 + Math.cos(stirAngle) * 0.05;
+        targetRHandY = 0.38 + Math.abs(Math.sin(stirAngle)) * 0.04;
+        targetRHandZ = 0.30 + Math.sin(stirAngle) * 0.05;
+
+        targetBodyRotX = 0.12;
+        targetHeadRotX = 0.18;
+        break;
+      }
+
+      case 'PICKUP':
+      case 'DROP': {
+        const p = 1 - this.oneShotTimer / Math.max(0.01, this.oneShotDuration);
+        const reach = Math.sin(p * Math.PI);
+        targetBodyRotX = reach * 0.22;
+        targetLHandX = -0.20;
+        targetLHandY = 0.42 - reach * 0.08;
+        targetLHandZ = 0.32 + reach * 0.10;
+        targetRHandX = 0.20;
+        targetRHandY = 0.42 - reach * 0.08;
+        targetRHandZ = 0.32 + reach * 0.10;
+        break;
+      }
+
+      case 'THROW': {
+        const p = 1 - this.oneShotTimer / Math.max(0.01, this.oneShotDuration);
+        const swing = Math.sin(p * Math.PI);
+        targetBodyRotX = -0.12 + swing * 0.35;
+        targetLHandX = -0.22;
+        targetLHandY = 0.48 + swing * 0.10;
+        targetLHandZ = 0.25 + swing * 0.18;
+        targetRHandX = 0.22;
+        targetRHandY = 0.48 + swing * 0.10;
+        targetRHandZ = 0.25 + swing * 0.18;
+        break;
+      }
+
+      case 'CELEBRATE': {
+        targetLHandX = -0.34;
+        targetLHandY = 0.64;
+        targetLHandZ = 0.12;
+        targetRHandX = 0.34;
+        targetRHandY = 0.64;
+        targetRHandZ = 0.12;
+        targetHatRotZ = Math.sin(this.oneShotTimer * 16) * 0.14;
+        break;
+      }
+
+      case 'CARRY': {
+        // Stable two-handed carry posture (no unwanted arm bobbing!)
+        targetLHandX = -0.20;
+        targetLHandY = 0.46;
+        targetLHandZ = 0.32;
+        targetRHandX = 0.20;
+        targetRHandY = 0.46;
+        targetRHandZ = 0.32;
+        targetAnchorX = 0;
+        targetAnchorY = 0.46;
+        targetAnchorZ = 0.38;
+        break;
+      }
+
+      case 'WALK': {
+        // Gentle arm swing opposite to feet while walking empty-handed
+        const swing = Math.sin(this.walkCycleTimer);
+        targetLHandX = -0.32;
+        targetLHandY = 0.32;
+        targetLHandZ = -swing * 0.14;
+        targetRHandX = 0.32;
+        targetRHandY = 0.32;
+        targetRHandZ = swing * 0.14;
+        break;
+      }
+
+      case 'IDLE':
+      default: {
+        // Calm, natural idle posture — arms stay relaxed at sides without moving up & down!
+        targetLHandX = -0.32;
+        targetLHandY = 0.32;
+        targetLHandZ = 0.08;
+        targetRHandX = 0.32;
+        targetRHandY = 0.32;
+        targetRHandZ = 0.08;
+        break;
+      }
     }
+
+    // 6. Apply Smooth Blending to All Body Parts
+    this.knifeMesh.visible = showKnife;
+
+    this.group.position.y = THREE.MathUtils.lerp(this.group.position.y, targetGroupY, blend);
+
+    this.bodyMesh.rotation.x = THREE.MathUtils.lerp(this.bodyMesh.rotation.x, targetBodyRotX, blend);
+    this.bodyMesh.rotation.z = THREE.MathUtils.lerp(this.bodyMesh.rotation.z, targetBodyRotZ, blend);
+    this.bodyMesh.scale.set(
+      THREE.MathUtils.lerp(this.bodyMesh.scale.x, targetBodyScaleX, blend),
+      THREE.MathUtils.lerp(this.bodyMesh.scale.y, targetBodyScaleY, blend),
+      THREE.MathUtils.lerp(this.bodyMesh.scale.z, targetBodyScaleZ, blend)
+    );
+
+    this.headGroup.rotation.x = THREE.MathUtils.lerp(this.headGroup.rotation.x, targetHeadRotX, blend);
+    this.headGroup.rotation.z = THREE.MathUtils.lerp(this.headGroup.rotation.z, targetHeadRotZ, blend);
+    this.chefHat.rotation.x = THREE.MathUtils.lerp(this.chefHat.rotation.x, targetHatRotX, blend);
+    this.chefHat.rotation.z = THREE.MathUtils.lerp(this.chefHat.rotation.z, targetHatRotZ, blend);
+
+    this.leftFoot.position.z = THREE.MathUtils.lerp(this.leftFoot.position.z, targetLFootZ, blend);
+    this.rightFoot.position.z = THREE.MathUtils.lerp(this.rightFoot.position.z, targetRFootZ, blend);
+
+    this.leftHand.position.set(
+      THREE.MathUtils.lerp(this.leftHand.position.x, targetLHandX, blend),
+      THREE.MathUtils.lerp(this.leftHand.position.y, targetLHandY, blend),
+      THREE.MathUtils.lerp(this.leftHand.position.z, targetLHandZ, blend)
+    );
+    this.rightHand.position.set(
+      THREE.MathUtils.lerp(this.rightHand.position.x, targetRHandX, blend),
+      THREE.MathUtils.lerp(this.rightHand.position.y, targetRHandY, blend),
+      THREE.MathUtils.lerp(this.rightHand.position.z, targetRHandZ, blend)
+    );
+
+    this.handAnchor.position.set(
+      THREE.MathUtils.lerp(this.handAnchor.position.x, targetAnchorX, blend),
+      THREE.MathUtils.lerp(this.handAnchor.position.y, targetAnchorY, blend),
+      THREE.MathUtils.lerp(this.handAnchor.position.z, targetAnchorZ, blend)
+    );
   }
 }

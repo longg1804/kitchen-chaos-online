@@ -65,9 +65,15 @@ export class GameScene3D {
   // Thrown Items in Flight
   private thrownItems: ThrownItem3D[] = [];
 
-  // Active facing counter highlight
+  // Active facing counter highlight & Smart Chopping / Smart Cooking State
   private targetCounterHighlight!: THREE.Mesh;
   private currentFacingCounter: Counter3DData | null = null;
+  private activeChopCounter: Counter3DData | null = null;
+  private activeCookCounter: Counter3DData | null = null;
+  private cookAnimTimer = 0;
+  private chopEffectTimer = 0;
+  private isPlayerMoving = false;
+  private lastSyncedAnim = 'IDLE';
 
   // Game Loop & Match Timer
   private isRunning = false;
@@ -213,12 +219,16 @@ export class GameScene3D {
 
       // Strict, non-overlapping action bindings:
       // [E] = Pick Up / Drop ONLY
+      // [Space] = Smart Contextual Action (One-tap Chop / Cook / Wash / Deliver)
       // [Shift] = Dash ONLY
       // [Q] = Throw ONLY
       // [P] = Screenshot ONLY
       if (e.code === 'KeyE') {
         e.preventDefault();
         this.handlePickupDrop();
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        this.handleSmartAction();
       } else if (e.code === 'KeyQ') {
         e.preventDefault();
         this.handleThrow();
@@ -266,6 +276,29 @@ export class GameScene3D {
       if (data.facingX !== undefined && fZ !== undefined) {
         const angle = Math.atan2(data.facingX, fZ);
         r.chef.setRotation(angle);
+      }
+    });
+
+    // Remote player animation state sync
+    room.onMessage('remote_player_anim', (data: { id: string; anim: string; counterId?: string }) => {
+      if (data.id === this.network.mySessionId) return;
+      const r = this.remotePlayers.get(data.id);
+      if (!r) return;
+
+      r.chef.isChopping = (data.anim === 'CHOP');
+      r.chef.isCooking = (data.anim === 'COOK');
+      if (data.anim === 'PICKUP' || data.anim === 'DROP' || data.anim === 'THROW' || data.anim === 'CELEBRATE') {
+        r.chef.playOneShot(data.anim);
+      }
+      if (data.counterId) {
+        const c = this.map.counters.get(data.counterId);
+        if (c) {
+          c.isActivelyChopping = (data.anim === 'CHOP');
+        }
+      } else {
+        this.map.counters.forEach((c) => {
+          if (c !== this.activeChopCounter) c.isActivelyChopping = false;
+        });
       }
     });
 
@@ -438,6 +471,9 @@ export class GameScene3D {
   private handleMovement(delta: number) {
     // Handle Active Dash Movement (220ms burst with smooth deceleration & zero recovery freeze)
     if (this.isDashing) {
+      this.isPlayerMoving = true;
+      this.cancelActiveWorkOnMove();
+
       this.dashTimer -= delta;
       this.dashParticleTimer += delta;
       if (this.dashParticleTimer >= 0.045) {
@@ -485,8 +521,13 @@ export class GameScene3D {
     }
 
     const isMoving = Math.hypot(moveX, moveZ) > 0.1;
+    this.isPlayerMoving = isMoving;
 
     if (isMoving) {
+      // Immediately cancel any active chopping/cooking animation if player moves!
+      // (Cutting board retains its current cutProgress; stove continues cooking on its own)
+      this.cancelActiveWorkOnMove();
+
       // Normalize
       const len = Math.hypot(moveX, moveZ);
       const normX = moveX / len;
@@ -511,13 +552,62 @@ export class GameScene3D {
     this.localPlayer.update(delta, isMoving);
   }
 
+  private cancelActiveWorkOnMove() {
+    if (this.activeChopCounter) {
+      this.activeChopCounter.isActivelyChopping = false;
+      this.activeChopCounter = null;
+      this.localPlayer.isChopping = false;
+      this.syncPlayerAnim('IDLE');
+      if (this.config.isMultiplayer && this.network.room) {
+        this.network.room.send('stop_action');
+      }
+    }
+    if (this.activeCookCounter) {
+      this.activeCookCounter = null;
+      this.cookAnimTimer = 0;
+      this.localPlayer.isCooking = false;
+      this.syncPlayerAnim('IDLE');
+    }
+  }
+
+  private isChoppable(type: IngredientType): boolean {
+    return (
+      type === IngredientType.LETTUCE ||
+      type === IngredientType.TOMATO ||
+      type === IngredientType.CHEESE ||
+      type === IngredientType.ONION ||
+      type === IngredientType.POTATO
+    );
+  }
+
+  private isCookable(type: IngredientType): boolean {
+    return type === IngredientType.RAW_MEAT || type === IngredientType.COOKED_PATTY;
+  }
+
+  private faceCounter(counter: Counter3DData) {
+    const dx = counter.x - this.playerPos.x;
+    const dz = counter.z - this.playerPos.z;
+    const len = Math.hypot(dx, dz) || 1;
+    this.facingDir = { x: dx / len, z: dz / len };
+    this.localPlayer.setRotation(Math.atan2(this.facingDir.x, this.facingDir.z));
+  }
+
+  private syncPlayerAnim(anim: string, counterId?: string) {
+    const key = `${anim}_${counterId || ''}`;
+    if (this.lastSyncedAnim === key) return;
+    this.lastSyncedAnim = key;
+    if (this.config.isMultiplayer && this.network.room) {
+      this.network.room.send('player_anim', { anim, counterId });
+    }
+  }
+
   private updateFacingCounter() {
-    // Check counter in front of player
-    const checkX = this.playerPos.x + this.facingDir.x * 0.85;
-    const checkZ = this.playerPos.z + this.facingDir.z * 0.85;
+    // Check counter in front of player (or nearest reachable counter within interaction radius)
+    const checkX = this.playerPos.x + this.facingDir.x * 0.82;
+    const checkZ = this.playerPos.z + this.facingDir.z * 0.82;
 
     let closest: Counter3DData | null = null;
-    let minDist = 0.95;
+    let minDist = 0.98;
 
     for (const c of this.map.counters.values()) {
       const dist = Math.hypot(c.x - checkX, c.z - checkZ);
@@ -535,38 +625,130 @@ export class GameScene3D {
     } else {
       this.targetCounterHighlight.visible = false;
     }
+
+    // Update Contextual Smart Action Button (Phase 7)
+    this.updateContextualHUD();
+  }
+
+  private updateContextualHUD() {
+    const c = this.currentFacingCounter;
+    if (!c) {
+      this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+      return;
+    }
+
+    if (c.type === CounterType.CUTTING_BOARD) {
+      const canChopBoard = c.currentItem !== null && c.currentItem !== undefined && this.isChoppable(c.currentItem.type);
+      const canPlaceAndChop = !c.currentItem && this.heldItem !== null && this.isChoppable(this.heldItem.type);
+      this.hud.updateContextualActionButton(
+        '🔪<br>CẮT',
+        canChopBoard || canPlaceAndChop ? '#f97316' : '#475569',
+        canChopBoard || canPlaceAndChop
+      );
+      return;
+    }
+
+    if (c.type === CounterType.STOVE) {
+      const canCookStove = c.currentItem !== null && c.currentItem !== undefined && this.isCookable(c.currentItem.type);
+      const canPlaceAndCook = !c.currentItem && this.heldItem !== null && this.isCookable(this.heldItem.type);
+      this.hud.updateContextualActionButton(
+        '🍳<br>NẤU',
+        canCookStove || canPlaceAndCook ? '#ea580c' : '#475569',
+        canCookStove || canPlaceAndCook
+      );
+      return;
+    }
+
+    if (c.id === 'counter_1_-3') {
+      // Sink
+      this.hud.updateContextualActionButton('💧<br>RỬA', '#0284c7', true);
+      return;
+    }
+
+    if (c.type === CounterType.DELIVERY) {
+      const canDeliver = this.heldItem !== null && this.heldItem.type === IngredientType.PLATE;
+      this.hud.updateContextualActionButton(
+        '🛎️<br>GIAO MÓN',
+        canDeliver ? '#10b981' : '#475569',
+        canDeliver
+      );
+      return;
+    }
+
+    this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
   }
 
   private updateKitchenSimulation(delta: number) {
-    const isActionPressed = this.keys['Space'] || this.hud.inputs.isActionPressed;
+    // 1. SMART CHOPPING SYSTEM (Continuous Auto-Chop after single tap until completed or player moves!)
+    if (this.activeChopCounter) {
+      const c = this.activeChopCounter;
+      const dist = Math.hypot(c.x - this.playerPos.x, c.z - this.playerPos.z);
 
-    this.map.counters.forEach(c => {
-      // 1. CUTTING BOARD (Normalized 0..1 progress for 3D floating progress bar)
-      if (c.type === CounterType.CUTTING_BOARD) {
-        if (this.currentFacingCounter === c && isActionPressed && c.currentItem) {
-          // If item can be sliced
-          if (c.currentItem.type === IngredientType.LETTUCE ||
-              c.currentItem.type === IngredientType.TOMATO ||
-              c.currentItem.type === IngredientType.CHEESE) {
-            this.localPlayer.currentAnim = 'chop';
-            c.cutProgress += delta * 0.55; // ~1.8 seconds to slice
-            this.sound.playChop();
-            this.particles.emitChopCrumbs(c.x, 0.95, c.z);
+      if (
+        this.isPlayerMoving ||
+        this.isDashing ||
+        dist > 1.45 ||
+        !c.currentItem ||
+        !this.isChoppable(c.currentItem.type)
+      ) {
+        // Interrupted by movement or item removed -> stop chopping, retain progress!
+        c.isActivelyChopping = false;
+        this.activeChopCounter = null;
+        this.localPlayer.isChopping = false;
+        this.syncPlayerAnim('IDLE');
+      } else {
+        // Continue automatic chopping!
+        c.isActivelyChopping = true;
+        this.localPlayer.isChopping = true;
+        this.faceCounter(c);
 
-            if (c.cutProgress >= 1.0) {
-              c.cutProgress = 0;
-              this.transformSlicedIngredient(c.currentItem);
-              // Update 3D mesh on board
-              c.itemHolder.clear();
-              c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
-              this.map.triggerCounterBounce(c.id);
-              this.broadcastCounterUpdate(c);
-            }
+        c.cutProgress += delta * 0.50; // Exactly 2.0 seconds total from 0% to 100%
+        this.chopEffectTimer += delta;
+        if (this.chopEffectTimer >= 0.22) {
+          this.chopEffectTimer = 0;
+          this.sound.playChop();
+          this.particles.emitChopCrumbs(c.x, 0.95, c.z);
+          if (this.config.isMultiplayer && this.network.room) {
+            this.network.room.send('player_action', { counterId: c.id, delta: 0.22 });
           }
         }
-      }
 
-      // 2. STOVE (Cooking -> Cooked -> Burning warning -> Burnt!)
+        if (c.cutProgress >= 1.0) {
+          // Chopping complete!
+          c.cutProgress = 0;
+          c.isActivelyChopping = false;
+          this.activeChopCounter = null;
+          this.localPlayer.isChopping = false;
+
+          this.transformSlicedIngredient(c.currentItem);
+          c.itemHolder.clear();
+          c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+          this.map.triggerCounterBounce(c.id);
+          this.sound.playPickup();
+          this.broadcastCounterUpdate(c);
+          this.syncPlayerAnim('IDLE');
+        }
+      }
+    }
+
+    // 2. SMART COOKING CHEF ANIMATION TIMER (Chef stirs/tends pan while standing at stove)
+    if (this.activeCookCounter) {
+      const c = this.activeCookCounter;
+      const dist = Math.hypot(c.x - this.playerPos.x, c.z - this.playerPos.z);
+      this.cookAnimTimer -= delta;
+      if (this.isPlayerMoving || this.isDashing || dist > 1.45 || !c.currentItem || this.cookAnimTimer <= 0) {
+        this.activeCookCounter = null;
+        this.cookAnimTimer = 0;
+        this.localPlayer.isCooking = false;
+        this.syncPlayerAnim('IDLE');
+      } else {
+        this.localPlayer.isCooking = true;
+        this.faceCounter(c);
+      }
+    }
+
+    // 3. AUTONOMOUS STOVE SIMULATION (Continues cooking in real-time even when player walks away!)
+    this.map.counters.forEach((c) => {
       if (c.type === CounterType.STOVE && c.currentItem) {
         if (c.currentItem.type === IngredientType.RAW_MEAT || c.currentItem.type === IngredientType.COOKED_PATTY) {
           c.cookingTimer += delta;
@@ -582,17 +764,21 @@ export class GameScene3D {
               c.itemHolder.clear();
               c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
               this.map.triggerCounterBounce(c.id);
+              this.sound.playPickup();
               this.broadcastCounterUpdate(c);
             }
           } else if (c.currentItem.type === IngredientType.COOKED_PATTY) {
             if (c.cookingTimer >= 8.5 && c.cookingTimer < 11.0) {
               c.stoveState = StoveState.BURNING;
+              if (Math.random() < 0.35) {
+                this.particles.emitBurntSmoke(c.x, 0.98, c.z);
+              }
             }
             // After 11s -> BURNT!
             if (c.cookingTimer >= 11.0) {
               c.currentItem.type = IngredientType.BURNT_PATTY;
               c.stoveState = StoveState.BURNT;
-              this.particles.emitBurntSmoke(c.x, 0.96, c.z);
+              this.particles.emitBurntSmoke(c.x, 0.98, c.z);
               c.itemHolder.clear();
               c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
               this.broadcastCounterUpdate(c);
@@ -607,12 +793,18 @@ export class GameScene3D {
     if (item.type === IngredientType.LETTUCE) item.type = IngredientType.CHOPPED_LETTUCE;
     else if (item.type === IngredientType.TOMATO) item.type = IngredientType.SLICED_TOMATO;
     else if (item.type === IngredientType.CHEESE) item.type = IngredientType.SLICED_CHEESE;
+    else if (item.type === IngredientType.ONION) item.type = IngredientType.SLICED_ONION;
+    else if (item.type === IngredientType.POTATO) item.type = IngredientType.CHOPPED_POTATO;
   }
 
   private processMobileActions() {
     if (this.hud.inputs.isDashJustPressed) {
       this.hud.inputs.isDashJustPressed = false;
       this.handleDash();
+    }
+    if (this.hud.inputs.isActionJustPressed) {
+      this.hud.inputs.isActionJustPressed = false;
+      this.handleSmartAction();
     }
     if (this.hud.inputs.isPickupJustPressed) {
       this.hud.inputs.isPickupJustPressed = false;
@@ -624,10 +816,99 @@ export class GameScene3D {
     }
   }
 
+  /**
+   * Smart Contextual Action (Triggered by single press of [Space] or Mobile Contextual Button)
+   * - Cutting Board: Auto-places held choppable ingredient & starts continuous auto-chopping!
+   * - Stove: Auto-places held raw meat onto frying pan & starts cooking!
+   * - Sink: Triggers quick dish/hand rinse animation & water splash!
+   * - Delivery: Submits held plate!
+   */
+  private handleSmartAction() {
+    this.sound.init();
+    const counter = this.currentFacingCounter;
+    if (!counter) return;
+
+    // 1. SMART CHOPPING ON CUTTING BOARD
+    if (counter.type === CounterType.CUTTING_BOARD) {
+      // If holding a choppable ingredient and board is empty -> auto-place it onto the board!
+      if (!counter.currentItem && this.heldItem && this.isChoppable(this.heldItem.type)) {
+        counter.currentItem = this.heldItem;
+        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
+        counter.itemHolder.clear();
+        counter.itemHolder.add(mesh);
+        this.setHeldItem(null);
+        this.map.triggerCounterBounce(counter.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(counter);
+      }
+
+      // If board now has a choppable ingredient -> start continuous auto-chopping!
+      if (counter.currentItem && this.isChoppable(counter.currentItem.type)) {
+        this.faceCounter(counter);
+        this.activeChopCounter = counter;
+        counter.isActivelyChopping = true;
+        this.localPlayer.isChopping = true;
+        this.chopEffectTimer = 0.22; // Trigger first chop sound/crumb immediately
+        this.syncPlayerAnim('CHOP', counter.id);
+      }
+      return;
+    }
+
+    // 2. SMART COOKING ON STOVE
+    if (counter.type === CounterType.STOVE) {
+      // If holding raw/cooked meat and stove is empty -> auto-place into frying pan!
+      if (!counter.currentItem && this.heldItem && this.isCookable(this.heldItem.type)) {
+        counter.currentItem = this.heldItem;
+        counter.stoveState =
+          this.heldItem.type === IngredientType.RAW_MEAT ? StoveState.COOKING : StoveState.COOKED;
+        if (this.heldItem.type === IngredientType.RAW_MEAT) {
+          counter.cookingTimer = 0;
+        }
+        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
+        counter.itemHolder.clear();
+        counter.itemHolder.add(mesh);
+        this.setHeldItem(null);
+        this.map.triggerCounterBounce(counter.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(counter);
+      }
+
+      // Trigger chef cooking animation at stove
+      if (counter.currentItem && this.isCookable(counter.currentItem.type)) {
+        this.faceCounter(counter);
+        this.activeCookCounter = counter;
+        this.cookAnimTimer = 1.4;
+        this.localPlayer.isCooking = true;
+        this.particles.emitSteam(counter.x, 0.98, counter.z);
+        this.syncPlayerAnim('COOK', counter.id);
+      }
+      return;
+    }
+
+    // 3. SINK INTERACTION
+    if (counter.id === 'counter_1_-3') {
+      this.faceCounter(counter);
+      this.activeCookCounter = counter;
+      this.cookAnimTimer = 0.8;
+      this.localPlayer.isCooking = true;
+      this.map.triggerCounterBounce(counter.id);
+      this.particles.emitSteam(counter.x, 0.92, counter.z);
+      this.sound.playPickup();
+      this.syncPlayerAnim('COOK', counter.id);
+      return;
+    }
+
+    // 4. DELIVERY COUNTER
+    if (counter.type === CounterType.DELIVERY && this.heldItem && this.heldItem.type === IngredientType.PLATE) {
+      this.handlePickupDrop();
+    }
+  }
+
   private handleDash() {
     // Only allow Dash when not already dashing and cooldown has finished
     if (this.isDashing || this.dashCooldownTimer > 0) return;
 
+    this.cancelActiveWorkOnMove();
     this.isDashing = true;
     this.dashTimer = this.dashDuration;
 
@@ -667,6 +948,7 @@ export class GameScene3D {
 
   private handlePickupDrop() {
     this.sound.init();
+    this.cancelActiveWorkOnMove();
 
     if (!this.currentFacingCounter) {
       // Nothing in front to interact with
@@ -674,6 +956,7 @@ export class GameScene3D {
     }
 
     const counter = this.currentFacingCounter;
+    this.faceCounter(counter);
 
     // 1. CRATES (Pick up raw items if hands are empty)
     if (counter.type.startsWith('crate_')) {
@@ -691,6 +974,8 @@ export class GameScene3D {
           type: spawnType,
           plateContents: spawnType === IngredientType.PLATE ? [] : undefined
         });
+        this.localPlayer.playOneShot('PICKUP');
+        this.syncPlayerAnim('PICKUP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
       }
@@ -702,6 +987,8 @@ export class GameScene3D {
       if (this.heldItem) {
         this.sound.playTrash();
         this.setHeldItem(null);
+        this.localPlayer.playOneShot('DROP');
+        this.syncPlayerAnim('DROP');
       }
       return;
     }
@@ -714,7 +1001,12 @@ export class GameScene3D {
           this.sound.playDelivery();
           this.particles.emitDeliveryStars(counter.x, 1.2, counter.z);
           this.setHeldItem(null);
-          this.localPlayer.currentAnim = 'celebrate';
+          this.localPlayer.playOneShot('CELEBRATE');
+          this.syncPlayerAnim('CELEBRATE');
+          this.hud.showFloatingPopup(
+            `🎉 +${result.pointsEarned} ĐIỂM! (COMBO x${this.recipeManager.combo})`,
+            '#10b981'
+          );
 
           if (this.config.isMultiplayer && this.network.room) {
             this.network.room.send('score_update', {
@@ -725,6 +1017,9 @@ export class GameScene3D {
               orders: this.recipeManager.getOrders()
             });
           }
+        } else {
+          this.sound.playTrash();
+          this.hud.showFloatingPopup('⚠️ SAI CÔNG THỨC MÓN ĂN!', '#ef4444');
         }
       }
       return;
@@ -732,13 +1027,16 @@ export class GameScene3D {
 
     // 4. CLEAR COUNTER / CUTTING BOARD / STOVE INTERACTION
     if (!this.heldItem && counter.currentItem) {
-      // Pick up from counter
+      // Pick up from counter (Note: picking up an item resets that counter's progress)
       this.setHeldItem(counter.currentItem);
       counter.currentItem = null;
       counter.cookingTimer = 0;
       counter.cutProgress = 0;
+      counter.isActivelyChopping = false;
       counter.stoveState = StoveState.IDLE;
       counter.itemHolder.clear();
+      this.localPlayer.playOneShot('PICKUP');
+      this.syncPlayerAnim('PICKUP');
       this.map.triggerCounterBounce(counter.id);
       this.sound.playPickup();
       this.broadcastCounterUpdate(counter);
@@ -759,6 +1057,8 @@ export class GameScene3D {
       const mesh = Ingredient3DFactory.createMesh(this.heldItem);
       counter.itemHolder.add(mesh);
       this.setHeldItem(null);
+      this.localPlayer.playOneShot('DROP');
+      this.syncPlayerAnim('DROP');
       this.map.triggerCounterBounce(counter.id);
       this.sound.playDrop();
       this.broadcastCounterUpdate(counter);
@@ -772,6 +1072,8 @@ export class GameScene3D {
         counter.itemHolder.clear();
         counter.itemHolder.add(Ingredient3DFactory.createMesh(counter.currentItem));
         this.setHeldItem(null);
+        this.localPlayer.playOneShot('DROP');
+        this.syncPlayerAnim('DROP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(counter);
@@ -785,6 +1087,8 @@ export class GameScene3D {
         counter.stoveState = StoveState.IDLE;
         counter.itemHolder.clear();
         this.updateHeldMesh();
+        this.localPlayer.playOneShot('PICKUP');
+        this.syncPlayerAnim('PICKUP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
         this.broadcastCounterUpdate(counter);
@@ -809,6 +1113,10 @@ export class GameScene3D {
           return;
         }
         closest.currentItem = item;
+        if (closest.type === CounterType.STOVE && item.type === IngredientType.RAW_MEAT) {
+          closest.stoveState = StoveState.COOKING;
+          closest.cookingTimer = 0;
+        }
         closest.itemHolder.clear();
         closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
         this.map.triggerCounterBounce(closest.id);
@@ -821,7 +1129,11 @@ export class GameScene3D {
   private handleThrow() {
     if (!this.heldItem) return;
 
+    this.cancelActiveWorkOnMove();
     this.sound.playThrow();
+    this.localPlayer.playOneShot('THROW');
+    this.syncPlayerAnim('THROW');
+
     const throwDistance = 3.2;
     const targetX = this.playerPos.x + this.facingDir.x * throwDistance;
     const targetZ = this.playerPos.z + this.facingDir.z * throwDistance;

@@ -534,106 +534,157 @@ export class Ingredient3DFactory {
     }
   }
 
-  // 7. CHICKEN
+  // 7. CHICKEN DRUMSTICK (Stylized cartoon poultry leg with bone knuckle & paper frill)
   private static buildChicken(group: THREE.Group, isCooked: boolean) {
     const mat = isCooked ? this.chickenCookedMat : this.chickenRawMat;
     const legGroup = new THREE.Group();
 
-    // Drumstick meat bulb
-    const meat = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 14), mat);
-    meat.position.set(0, 0.18, 0);
-    meat.scale.set(1, 1.4, 0.9);
+    // Plump drumstick bulb
+    const meat = new THREE.Mesh(new THREE.SphereGeometry(0.19, 16, 14), mat);
+    meat.position.set(-0.04, 0.14, 0);
+    meat.scale.set(1.35, 0.92, 0.95);
     meat.castShadow = true;
     legGroup.add(meat);
 
-    // White bone end
-    const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.18), this.boneMat);
-    bone.position.set(0, 0.05, 0);
+    // Tapered shank connecting to bone
+    const shank = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.22, 14), mat);
+    shank.rotation.z = -Math.PI / 2;
+    shank.position.set(0.10, 0.14, 0);
+    legGroup.add(shank);
+
+    // White bone shaft & double knuckle ends
+    const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 10), this.boneMat);
+    bone.rotation.z = Math.PI / 2;
+    bone.position.set(0.22, 0.14, 0);
     legGroup.add(bone);
 
-    legGroup.rotation.z = Math.PI / 4;
-    legGroup.position.set(0, 0.08, 0);
+    const k1 = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 10), this.boneMat);
+    k1.position.set(0.32, 0.14, 0.035);
+    legGroup.add(k1);
+    const k2 = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 10), this.boneMat);
+    k2.position.set(0.32, 0.14, -0.035);
+    legGroup.add(k2);
+
+    legGroup.rotation.y = 0.35;
     group.add(legGroup);
   }
 
-  // 8. FISH
+  // 8. CARTOON FISH (Plump rounded body, tail fin, dorsal fin & cute eye)
   private static buildFish(group: THREE.Group, isCooked: boolean) {
     const mat = isCooked ? this.fishCookedMat : this.fishScaleMat;
-    // Tapered fish body
-    const body = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 12), mat);
-    body.rotation.z = Math.PI / 2;
-    body.position.set(0, 0.14, 0);
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.20, 18, 14), mat);
+    body.scale.set(1.45, 0.55, 0.82);
+    body.position.set(-0.04, 0.11, 0);
     body.castShadow = true;
     group.add(body);
 
-    // Tail fin
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.02), mat);
-    fin.position.set(0.28, 0.14, 0);
-    group.add(fin);
-  }
+    // V-shaped cartoon tail fin
+    const tailTop = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 10), mat);
+    tailTop.rotation.z = Math.PI / 2.4;
+    tailTop.position.set(0.26, 0.12, 0.05);
+    group.add(tailTop);
 
-  // 9. SHRIMP
-  private static buildShrimp(group: THREE.Group) {
-    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.06, 8, 16, Math.PI * 1.3), this.shrimpMat);
-    torus.rotation.x = Math.PI / 2;
-    torus.position.set(0, 0.06, 0);
-    torus.castShadow = true;
-    group.add(torus);
-  }
+    const tailBot = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 10), mat);
+    tailBot.rotation.z = Math.PI / 1.7;
+    tailBot.position.set(0.26, 0.12, -0.05);
+    group.add(tailBot);
 
-  // 10. ONION
-  private static buildOnion(group: THREE.Group, isChopped: boolean) {
-    if (isChopped) {
-      for (let i = 0; i < 3; i++) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18 - i * 0.04, 0.02, 6, 16), this.onionMat);
-        ring.rotation.x = Math.PI / 2;
-        ring.position.y = 0.02 + i * 0.03;
-        group.add(ring);
-      }
+    if (!isCooked) {
+      const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.036, 10, 10), this.boneMat);
+      eyeWhite.position.set(-0.19, 0.16, 0.09);
+      group.add(eyeWhite);
     } else {
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.20, 14, 14), this.onionMat);
-      bulb.scale.set(1, 1.25, 1);
-      bulb.position.y = 0.22;
-      bulb.castShadow = true;
-      group.add(bulb);
+      // Grill sear marks on cooked fish
+      for (let g = -1; g <= 1; g++) {
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.01, 0.22), this.grillMarkMat);
+        mark.position.set(g * 0.08, 0.215, 0);
+        group.add(mark);
+      }
     }
   }
 
-  // 11. POTATO
+  // 9. CARTOON SHRIMP / PRAWN (Curved segmented body with tail fan)
+  private static buildShrimp(group: THREE.Group) {
+    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.065, 12, 20, Math.PI * 1.35), this.shrimpMat);
+    torus.rotation.x = Math.PI / 2;
+    torus.position.set(0, 0.07, 0);
+    torus.castShadow = true;
+    group.add(torus);
+
+    // White stripe bands
+    for (let s = 0; s < 3; s++) {
+      const ang = 0.5 + s * 0.9;
+      const band = new THREE.Mesh(new THREE.SphereGeometry(0.068, 10, 10), this.boneMat);
+      band.scale.set(0.35, 1, 1);
+      band.position.set(Math.cos(ang) * 0.14, 0.07, Math.sin(ang) * 0.14);
+      band.rotation.y = -ang;
+      group.add(band);
+    }
+  }
+
+  // 10. CARTOON ONION (Plump purple bulb with sprout tip, or concentric rings when sliced)
+  private static buildOnion(group: THREE.Group, isChopped: boolean) {
+    if (isChopped) {
+      for (let i = 0; i < 3; i++) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19 - i * 0.04, 0.024, 10, 20), this.onionMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set((i - 1) * 0.03, 0.025 + i * 0.025, 0);
+        ring.castShadow = true;
+        group.add(ring);
+      }
+    } else {
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 14), this.onionMat);
+      bulb.scale.set(1.05, 0.92, 1.05);
+      bulb.position.y = 0.20;
+      bulb.castShadow = true;
+      group.add(bulb);
+
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 10), this.stemGreenMat);
+      tip.position.y = 0.42;
+      group.add(tip);
+    }
+  }
+
+  // 11. CARTOON POTATO (Rounded spud with dimples, or golden french fry stack)
   private static buildPotato(group: THREE.Group, isChopped: boolean) {
     if (isChopped) {
-      // Golden french fry batons
-      for (let i = 0; i < 5; i++) {
-        const fry = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.24), this.breadCrustMat);
-        fry.rotation.y = (i * Math.PI) / 4;
-        fry.position.set((Math.random() - 0.5) * 0.06, 0.02 + i * 0.02, 0);
+      for (let i = 0; i < 6; i++) {
+        const fry = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.28), this.cheeseMat);
+        fry.rotation.y = (i % 3) * 0.28 - 0.28;
+        fry.position.set(((i % 3) - 1) * 0.065, 0.025 + Math.floor(i / 3) * 0.045, 0);
+        fry.castShadow = true;
         group.add(fry);
       }
     } else {
-      const pot = new THREE.Mesh(new THREE.SphereGeometry(0.20, 12, 12), this.potatoMat);
-      pot.scale.set(1.3, 0.9, 0.9);
-      pot.position.y = 0.16;
+      const pot = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 14), this.potatoMat);
+      pot.scale.set(1.28, 0.82, 0.95);
+      pot.position.y = 0.17;
       pot.castShadow = true;
       group.add(pot);
     }
   }
 
-  // 12. EGG
+  // 12. CARTOON EGG (Plump shell egg or sunny-side-up fried egg)
   private static buildEgg(group: THREE.Group, isFried: boolean) {
     if (isFried) {
-      // Fried egg white puddle
-      const eggWhite = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.02, 16), this.eggWhiteMat);
-      eggWhite.position.y = 0.01;
+      const eggWhite = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.27, 0.028, 20), this.eggWhiteMat);
+      eggWhite.scale.set(1.08, 1, 0.94);
+      eggWhite.position.y = 0.014;
+      eggWhite.castShadow = true;
       group.add(eggWhite);
 
-      // Golden yolk dome
-      const yolk = new THREE.Mesh(new THREE.SphereGeometry(0.10, 12, 12, 0, Math.PI * 2, 0, Math.PI / 2), this.eggYolkMat);
-      yolk.position.y = 0.02;
+      const yolk = new THREE.Mesh(
+        new THREE.SphereGeometry(0.11, 16, 14, 0, Math.PI * 2, 0, Math.PI / 1.8),
+        this.eggYolkMat
+      );
+      yolk.position.set(0.02, 0.025, 0);
+      yolk.castShadow = true;
       group.add(yolk);
     } else {
-      const egg = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 14), this.eggWhiteMat);
-      egg.scale.set(0.9, 1.3, 0.9);
-      egg.position.y = 0.20;
+      const egg = new THREE.Mesh(new THREE.SphereGeometry(0.19, 16, 14), this.eggWhiteMat);
+      egg.scale.set(0.88, 1.22, 0.88);
+      egg.position.y = 0.22;
       egg.castShadow = true;
       group.add(egg);
     }

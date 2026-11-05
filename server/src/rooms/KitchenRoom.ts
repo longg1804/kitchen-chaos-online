@@ -145,6 +145,42 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }, { except: client });
     });
 
+    this.onMessage('player_anim', (client, data: { anim: string; counterId?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.isChopping = (data.anim === 'CHOP');
+      }
+      this.broadcast('remote_player_anim', {
+        id: client.sessionId,
+        anim: data.anim,
+        counterId: data.counterId
+      }, { except: client });
+    });
+
+    this.onMessage('counter_update', (client, data: any) => {
+      const counter = this.state.counters.get(data.id);
+      if (counter) {
+        if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
+        if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
+        if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
+      }
+      this.broadcast('remote_counter_update', data, { except: client });
+    });
+
+    this.onMessage('throw_item', (client, data: any) => {
+      this.broadcast('remote_throw_item', data, { except: client });
+    });
+
+    this.onMessage('score_update', (client, data: { score: number; combo: number }) => {
+      this.state.score = data.score;
+      this.state.combo = data.combo;
+      this.broadcast('remote_score_update', data, { except: client });
+    });
+
+    this.onMessage('orders_update', (client, data: { orders: any[] }) => {
+      this.broadcast('remote_orders_update', data, { except: client });
+    });
+
     this.onMessage('player_action', (client, data: { counterId: string; delta: number }) => {
       const player = this.state.players.get(client.sessionId);
       const counter = this.state.counters.get(data.counterId);

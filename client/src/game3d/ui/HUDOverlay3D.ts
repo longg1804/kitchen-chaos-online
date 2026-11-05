@@ -27,6 +27,9 @@ export class HUDOverlay3D {
   private ordersContainer!: HTMLElement;
   private gameOverEl!: HTMLElement;
   private dashBtnEl?: HTMLElement;
+  private actionBtnEl?: HTMLElement;
+  private actionBtnEnabled = false;
+  private currentActionLabel = '';
   private onExitCallback: () => void;
   private onScreenshotCallback?: () => void;
 
@@ -388,11 +391,12 @@ export class HUDOverlay3D {
       this.inputs.isPickupJustPressed = true;
     });
 
-    // Action / Chop (Orange)
-    const actionBtn = this.createTouchButton('CẮT<br>NẤU', '#f97316', '#ea580c', 80, () => {
+    //Contextual Smart Action Button (CẮT / NẤU / RỬA / GIAO MÓN) - Single-tap trigger!
+    this.actionBtnEl = this.createTouchButton('🔪<br>CẮT', '#f97316', '#ea580c', 80, () => {
+      if (!this.actionBtnEnabled) return;
       this.inputs.isActionJustPressed = true;
     }, (pressed) => {
-      this.inputs.isActionPressed = pressed;
+      this.inputs.isActionPressed = this.actionBtnEnabled && pressed;
     });
 
     // Throw (Purple)
@@ -403,8 +407,72 @@ export class HUDOverlay3D {
     btnContainer.appendChild(this.dashBtnEl);
     btnContainer.appendChild(throwBtn);
     btnContainer.appendChild(pickupBtn);
-    btnContainer.appendChild(actionBtn);
+    btnContainer.appendChild(this.actionBtnEl);
     this.container.appendChild(btnContainer);
+
+    this.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+  }
+
+  /**
+   * Dynamically updates the Smart Contextual Action Button based on what equipment
+   * and ingredient the player is facing/holding (CẮT, NẤU, RỬA, GIAO MÓN, or Disabled).
+   */
+  public updateContextualActionButton(labelHtml: string, color: string, enabled: boolean) {
+    if (!this.actionBtnEl) return;
+    if (this.currentActionLabel === `${labelHtml}_${color}_${enabled}`) return;
+    this.currentActionLabel = `${labelHtml}_${color}_${enabled}`;
+    this.actionBtnEnabled = enabled;
+
+    const span = this.actionBtnEl.querySelector('span');
+    if (span) {
+      span.innerHTML = labelHtml;
+    }
+
+    this.actionBtnEl.dataset.baseColor = color;
+    this.actionBtnEl.style.background = color;
+    if (enabled) {
+      this.actionBtnEl.style.opacity = '1.0';
+      this.actionBtnEl.style.filter = 'none';
+      this.actionBtnEl.style.cursor = 'pointer';
+      this.actionBtnEl.style.boxShadow = `0 0 18px ${color}99, 0 4px 14px rgba(0, 0, 0, 0.45)`;
+    } else {
+      this.actionBtnEl.style.opacity = '0.38';
+      this.actionBtnEl.style.filter = 'grayscale(65%)';
+      this.actionBtnEl.style.cursor = 'default';
+      this.actionBtnEl.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.25)';
+      this.inputs.isActionPressed = false;
+    }
+  }
+
+  public showFloatingPopup(text: string, borderColor: string = '#fbbf24') {
+    const popup = document.createElement('div');
+    popup.innerHTML = text;
+    popup.style.cssText = `
+      position: absolute;
+      top: 90px;
+      left: 50%;
+      transform: translate(-50%, 0) scale(0.85);
+      background: rgba(15, 23, 42, 0.94);
+      border: 3px solid ${borderColor};
+      border-radius: 18px;
+      padding: 8px 22px;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 20px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+      z-index: 80;
+      opacity: 1;
+      transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.75s ease-out;
+    `;
+    this.container.appendChild(popup);
+    requestAnimationFrame(() => {
+      popup.style.transform = 'translate(-50%, -32px) scale(1.05)';
+      popup.style.opacity = '0';
+    });
+    setTimeout(() => {
+      if (popup.parentNode) popup.parentNode.removeChild(popup);
+    }, 800);
   }
 
   public updateDashCooldown(remainingSeconds: number, totalCooldown: number) {
@@ -505,7 +573,7 @@ export class HUDOverlay3D {
       if (activePointerId !== null && e.pointerId !== activePointerId) return;
       activePointerId = null;
       btn.style.transform = 'scale(1)';
-      btn.style.background = color;
+      btn.style.background = btn.dataset.baseColor || color;
       if (onHold) onHold(false);
     };
 

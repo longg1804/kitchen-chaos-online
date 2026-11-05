@@ -13,6 +13,9 @@ export interface Counter3DData {
   group: THREE.Group;
   itemHolder: THREE.Group;
   crateDisplayGroup?: THREE.Group;
+  boardKnifeGroup?: THREE.Group;
+  heatRingMat?: THREE.MeshStandardMaterial;
+  isActivelyChopping?: boolean;
   bounceTimer?: number;
   progressGroup?: THREE.Group;
   progressFillMesh?: THREE.Mesh;
@@ -245,7 +248,7 @@ export class KitchenMap3D {
     group.add(itemHolder);
 
     // Equipment on top based on Type
-    const extraRefs = this.decorateCounter(group, type);
+    const extraRefs = this.decorateCounter(group, type, id);
 
     this.scene.add(group);
     this.physics.addBox(id, x, z, 1.0, 1.0);
@@ -258,6 +261,9 @@ export class KitchenMap3D {
       group,
       itemHolder,
       crateDisplayGroup: extraRefs.crateDisplayGroup,
+      boardKnifeGroup: extraRefs.boardKnifeGroup,
+      heatRingMat: extraRefs.heatRingMat,
+      isActivelyChopping: false,
       bounceTimer: 0,
       progressGroup: extraRefs.progressGroup,
       progressFillMesh: extraRefs.progressFillMesh,
@@ -279,8 +285,9 @@ export class KitchenMap3D {
   }
 
   public updateStations(delta: number) {
+    const now = performance.now() * 0.001;
     this.counters.forEach((c) => {
-      // 1. Crate / Counter interaction bounce feedback
+      // 1. Crate / Counter interaction bounce feedback & active chopping vibration
       if (c.bounceTimer && c.bounceTimer > 0) {
         c.bounceTimer = Math.max(0, c.bounceTimer - delta);
         const t = c.bounceTimer / 0.22;
@@ -290,11 +297,29 @@ export class KitchenMap3D {
         } else {
           c.itemHolder.scale.set(pulse, pulse, pulse);
         }
+      } else if (c.isActivelyChopping && c.currentItem) {
+        // Subtle rhythmic squash-and-stretch on food while being chopped on board!
+        const chopSquash = Math.sin(now * 26) * 0.07;
+        c.itemHolder.scale.set(1 + chopSquash, 1 - chopSquash, 1 + chopSquash);
       } else {
         if (c.crateDisplayGroup) {
           c.crateDisplayGroup.scale.set(1, 1, 1);
         }
         c.itemHolder.scale.set(1, 1, 1);
+      }
+
+      // Hide resting knife on cutting board while chef is actively holding the knife to chop
+      if (c.boardKnifeGroup) {
+        c.boardKnifeGroup.visible = !c.isActivelyChopping;
+      }
+
+      // Dynamic Stove Burner Heat Glow when cooking
+      if (c.heatRingMat) {
+        if (c.currentItem && c.stoveState !== StoveState.IDLE) {
+          c.heatRingMat.emissiveIntensity = 1.2 + Math.sin(now * 10) * 0.35;
+        } else {
+          c.heatRingMat.emissiveIntensity = 0.45;
+        }
       }
 
       // 2. 3D Floating Progress Bar for Cutting Boards & Stoves
@@ -305,7 +330,7 @@ export class KitchenMap3D {
             const ratio = Math.max(0.02, Math.min(1, c.cutProgress));
             c.progressFillMesh.scale.x = ratio;
             c.progressFillMesh.position.x = -0.34 * (1 - ratio);
-            c.progressFillMat.color.setHex(0x22c55e);
+            c.progressFillMat.color.setHex(c.isActivelyChopping ? 0x22c55e : 0xfacc15);
           } else {
             c.progressGroup.visible = false;
           }
@@ -367,13 +392,72 @@ export class KitchenMap3D {
 
   private decorateCounter(
     group: THREE.Group,
-    type: CounterType
+    type: CounterType,
+    id: string = ''
   ): {
     crateDisplayGroup?: THREE.Group;
+    boardKnifeGroup?: THREE.Group;
+    heatRingMat?: THREE.MeshStandardMaterial;
     progressGroup?: THREE.Group;
     progressFillMesh?: THREE.Mesh;
     progressFillMat?: THREE.MeshBasicMaterial;
   } {
+    // Decorative Cartoon Kitchen Appliances on non-interactive back-wall corner counters:
+    // Top-left corner (-4, -3): Cartoon Commercial Refrigerator
+    if (id === 'counter_-4_-3') {
+      const fridgeGroup = new THREE.Group();
+      const fridgeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.25, metalness: 0.45 });
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.2, metalness: 0.8 });
+
+      const fridgeBody = new THREE.Mesh(new THREE.BoxGeometry(0.92, 1.35, 0.88), fridgeMat);
+      fridgeBody.position.y = 1.48;
+      fridgeBody.castShadow = true;
+      fridgeGroup.add(fridgeBody);
+
+      const handleTop = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 0.06), handleMat);
+      handleTop.position.set(0.32, 1.80, 0.46);
+      fridgeGroup.add(handleTop);
+
+      const handleBot = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.06), handleMat);
+      handleBot.position.set(0.32, 1.25, 0.46);
+      fridgeGroup.add(handleBot);
+
+      group.add(fridgeGroup);
+      return {};
+    }
+
+    // Back-wall counter (1, -3): Cartoon Kitchen Sink with Gooseneck Faucet & Soapy Water Basin
+    if (id === 'counter_1_-3') {
+      const basinMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.2, metalness: 0.7 });
+      const waterMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.25,
+        roughness: 0.15
+      });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.9 });
+
+      const basin = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.04, 0.62), basinMat);
+      basin.position.set(0, 0.845, 0.04);
+      group.add(basin);
+
+      const water = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.045, 0.54), waterMat);
+      water.position.set(0, 0.848, 0.04);
+      group.add(water);
+
+      // Gooseneck Faucet
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.28, 12), chromeMat);
+      stem.position.set(0, 0.98, -0.32);
+      group.add(stem);
+
+      const spout = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.028, 10, 16, Math.PI), chromeMat);
+      spout.rotation.y = Math.PI / 2;
+      spout.position.set(0, 1.11, -0.21);
+      group.add(spout);
+
+      return {};
+    }
+
     // 1. CUTTING BOARD
     if (type === CounterType.CUTTING_BOARD) {
       const boardGeo = new THREE.BoxGeometry(0.74, 0.05, 0.58);
@@ -412,7 +496,7 @@ export class KitchenMap3D {
 
       const prog = this.createProgressBar3D();
       group.add(prog.progressGroup);
-      return prog;
+      return { ...prog, boardKnifeGroup: knifeGroup };
     }
     // 2. STOVE & FRYING PAN
     else if (type === CounterType.STOVE) {
@@ -425,9 +509,14 @@ export class KitchenMap3D {
       group.add(burnerFrame);
 
       // Glowing Red Heat Ring
+      const heatRingMat = new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        emissive: 0xdc2626,
+        emissiveIntensity: 0.7
+      });
       const heatRing = new THREE.Mesh(
         new THREE.TorusGeometry(0.24, 0.025, 8, 24),
-        new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626, emissiveIntensity: 0.7 })
+        heatRingMat
       );
       heatRing.rotation.x = Math.PI / 2;
       heatRing.position.y = 0.862;
@@ -469,7 +558,7 @@ export class KitchenMap3D {
 
       const prog = this.createProgressBar3D();
       group.add(prog.progressGroup);
-      return prog;
+      return { ...prog, heatRingMat };
     }
     // 3. DELIVERY WINDOW COUNTER
     else if (type === CounterType.DELIVERY) {
