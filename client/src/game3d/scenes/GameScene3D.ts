@@ -12,15 +12,20 @@ import { NetworkManager } from '../../multiplayer/NetworkManager';
 import { CounterType, IngredientType, KitchenItem, StoveState } from '../../game/types';
 import { CookingConfig } from '../../game/config/CookingConfig';
 import { QualityManager3D } from '../core/QualityManager3D';
+import { InputManager, UnifiedInputState } from '../../game/controls/InputManager';
+import { CampaignProgressManager } from '../../game/config/CampaignProgress';
 
 export interface GameScene3DConfig {
   isMultiplayer: boolean;
   roomCode?: string;
   mapId?: string;
+  levelId?: string;
   skin?: string;
   playerCount?: number;
   playerName?: string;
   onExit: () => void;
+  onRetry?: () => void;
+  onNextLevel?: (nextLevelId: string) => void;
 }
 
 export class GameScene3D {
@@ -89,7 +94,22 @@ export class GameScene3D {
   private lastSentPos = { x: -999, z: -999, fx: 0, fz: 1 };
   private readonly boundRenderLoop = (t: number) => this.renderLoop(t);
 
-  // Keyboard state
+  // Input & Campaign Progression
+  private inputManager!: InputManager;
+  private currentUnifiedInputs: UnifiedInputState = {
+    moveX: 0,
+    moveZ: 0,
+    isMoving: false,
+    isPickupDropJustPressed: false,
+    isActionPressed: false,
+    isActionJustPressed: false,
+    isDashJustPressed: false,
+    isThrowJustPressed: false,
+    isPauseJustPressed: false,
+    isScreenshotJustPressed: false,
+    isGamepadActive: false
+  };
+  private currentLevelId: string = '1-1';
   private keys: { [key: string]: boolean } = {};
 
   constructor(container: HTMLElement, config: GameScene3DConfig) {
@@ -169,11 +189,22 @@ export class GameScene3D {
   private initGame() {
     this.physics = new Physics3D();
     this.map = new KitchenMap3D(this.scene, this.physics);
-    this.map.buildMap(this.config.mapId || 'traditional');
+
+    const progressMgr = CampaignProgressManager.getInstance();
+    this.currentLevelId = this.config.levelId || '1-1';
+    const levelConfig = progressMgr.getLevelConfig(this.currentLevelId);
+
+    const layout = levelConfig?.mapLayoutId || levelConfig?.theme || this.config.mapId || 'traditional';
+    this.map.buildMap(layout);
 
     this.particles = new ParticleSystem3D(this.scene);
-    const difficulty = this.config.mapId === 'split_kitchen' ? 'hard' : 'normal';
-    this.recipeManager = new RecipeManager(this.config.playerCount || 1, difficulty);
+    const difficulty = layout === 'split_kitchen' || layout === 'chaotic' ? 'hard' : 'normal';
+    const allowedRecipes = levelConfig ? levelConfig.recipes : undefined;
+    this.recipeManager = new RecipeManager(this.config.playerCount || 1, difficulty, allowedRecipes);
+
+    if (levelConfig) {
+      this.matchTimeRemaining = levelConfig.timeLimit || 180;
+    }
 
     // Spawn local chef in kitchen open area
     const skinId = (this.config.skin || 'chef_classic') as ChefSkinId;
@@ -213,42 +244,11 @@ export class GameScene3D {
   }
 
   private setupInputs() {
+    this.inputManager = new InputManager(() => this.hud.inputs);
+
     this.boundKeyDown = (e: KeyboardEvent) => {
-      // Ignore keyboard shortcuts if typing in an input element
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      // Edge-detection: ignore key-repeat events when holding down a key!
-      if (e.repeat || this.keys[e.code]) {
-        return;
-      }
-
-      this.keys[e.code] = true;
       this.sound.init(); // Initialize audio on first keypress
-
-      // Strict, non-overlapping action bindings:
-      // [E] = Pick Up / Drop (At Storage Bins: Empty hand = ALWAYS dispense from bin; Holding item = Place onto bin top surface)
-      // [Space] or [F] = Smart Contextual Action (At Storage Bins: Pick up item from bin top surface, or Swap held item & dispense)
-      // [Shift] = Dash ONLY
-      // [Q] = Throw ONLY
-      // [P] = Screenshot ONLY
-      if (e.code === 'KeyE') {
-        e.preventDefault();
-        this.handlePickupDrop();
-      } else if (e.code === 'Space' || e.code === 'KeyF') {
-        e.preventDefault();
-        this.handleSmartAction();
-      } else if (e.code === 'KeyQ') {
-        e.preventDefault();
-        this.handleThrow();
-      } else if (e.code === 'KeyP') {
-        e.preventDefault();
-        this.takeScreenshot();
-      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        e.preventDefault();
-        this.handleDash();
-      }
+      this.keys[e.code] = true;
     };
 
     this.boundKeyUp = (e: KeyboardEvent) => {
@@ -256,7 +256,6 @@ export class GameScene3D {
     };
 
     this.boundBlur = () => {
-      // Clear held keys when window loses focus to prevent stuck movement/actions
       this.keys = {};
     };
 
@@ -488,12 +487,64 @@ export class GameScene3D {
   private update(delta: number) {
     if (this.isGameOver) return;
 
+    this.currentUnifiedInputs = this.inputManager.sampleInputs();
+
     // 1. Match Timer Countdown
     this.matchTimeRemaining -= delta;
     if (this.matchTimeRemaining <= 0) {
       this.matchTimeRemaining = 0;
       this.isGameOver = true;
-      this.hud.showGameOver(this.recipeManager.score);
+
+      const progressMgr = CampaignProgressManager.getInstance();
+      const levelId = this.currentLevelId;
+      const result = progressMgr.saveLevelResult(levelId, this.recipeManager.score);
+      const lvlConfig = progressMgr.getLevelConfig(levelId);
+      const nextLevel = progressMgr.getNextLevel(levelId);
+
+      this.hud.showGameOver({
+        score: this.recipeManager.score,
+        levelId,
+        levelName: lvlConfig?.name,
+        starsEarned: result.stars,
+        starThresholds: lvlConfig?.starThresholds,
+        highScore: progressMgr.getLevelRecord(levelId).highScore,
+        newHighScore: result.newHighScore,
+        hasNextLevel: Boolean(nextLevel && nextLevel.id),
+        onNextLevel: () => {
+          if (nextLevel && this.config.onNextLevel) {
+            this.config.onNextLevel(nextLevel.id);
+          } else {
+            this.destroy();
+            this.config.onExit();
+          }
+        },
+        onRetry: () => {
+          if (this.config.onRetry) {
+            this.config.onRetry();
+          } else {
+            this.destroy();
+            this.config.onExit();
+          }
+        }
+      });
+      return;
+    }
+
+    // Single-frame input actions from Unified InputManager (Keyboard / Gamepad / Touch)
+    if (this.currentUnifiedInputs.isDashJustPressed) {
+      this.handleDash();
+    }
+    if (this.currentUnifiedInputs.isPickupDropJustPressed) {
+      this.handlePickupDrop();
+    }
+    if (this.currentUnifiedInputs.isActionJustPressed) {
+      this.handleSmartAction();
+    }
+    if (this.currentUnifiedInputs.isThrowJustPressed) {
+      this.handleThrow();
+    }
+    if (this.currentUnifiedInputs.isScreenshotJustPressed) {
+      this.takeScreenshot();
     }
 
     // 2. Recipe Orders update
@@ -548,10 +599,7 @@ export class GameScene3D {
     // 9. Check facing counter for interaction & highlight
     this.updateFacingCounter();
 
-    // 10. Handle mobile inputs
-    this.processMobileActions();
-
-    // 11. Multiplayer Network Sync throttled
+    // 10. Multiplayer Network Sync throttled
     this.syncNetworkPosition();
   }
 
@@ -592,22 +640,9 @@ export class GameScene3D {
       return;
     }
 
-    let moveX = 0;
-    let moveZ = 0;
-
-    // Desktop keyboard
-    if (this.keys['KeyW'] || this.keys['ArrowUp']) moveZ -= 1;
-    if (this.keys['KeyS'] || this.keys['ArrowDown']) moveZ += 1;
-    if (this.keys['KeyA'] || this.keys['ArrowLeft']) moveX -= 1;
-    if (this.keys['KeyD'] || this.keys['ArrowRight']) moveX += 1;
-
-    // Mobile Virtual Joystick
-    if (this.hud.inputs.moveX !== 0 || this.hud.inputs.moveZ !== 0) {
-      moveX = this.hud.inputs.moveX;
-      moveZ = this.hud.inputs.moveZ;
-    }
-
-    const isMoving = Math.hypot(moveX, moveZ) > 0.1;
+    const moveX = this.currentUnifiedInputs.moveX;
+    const moveZ = this.currentUnifiedInputs.moveZ;
+    const isMoving = this.currentUnifiedInputs.isMoving;
     this.isPlayerMoving = isMoving;
 
     if (isMoving) {
@@ -663,7 +698,8 @@ export class GameScene3D {
       type === IngredientType.TOMATO ||
       type === IngredientType.CHEESE ||
       type === IngredientType.ONION ||
-      type === IngredientType.POTATO
+      type === IngredientType.POTATO ||
+      type === IngredientType.MUSHROOM
     );
   }
 
@@ -751,6 +787,18 @@ export class GameScene3D {
         return 'Cà Chua 🍅';
       case CounterType.CRATE_CHEESE:
         return 'Phô Mai 🧀';
+      case CounterType.CRATE_MUSHROOM:
+        return 'Nấm Tươi 🍄';
+      case CounterType.CRATE_ONION:
+        return 'Hành Tây 🧅';
+      case CounterType.CRATE_POTATO:
+        return 'Khoai Tây 🥔';
+      case CounterType.CRATE_FISH:
+        return 'Cá Hồi 🐟';
+      case CounterType.CRATE_SHRIMP:
+        return 'Tôm Tươi 🦐';
+      case CounterType.CRATE_CHICKEN:
+        return 'Thịt Gà 🍗';
       case CounterType.CRATE_PLATE:
         return 'Đĩa Sứ 🍽️';
       default:
@@ -1038,10 +1086,10 @@ export class GameScene3D {
       }
     }
 
-    // 2.5. FIRE EXTINGUISHER SPRAY SYSTEM (Hold [Space] or Hold Mobile Contextual Button while holding extinguisher)
+    // 2.5. FIRE EXTINGUISHER SPRAY SYSTEM (Hold [Space/F] or Hold Mobile Contextual Button while holding extinguisher)
     const isSpraying =
       this.heldItem?.type === IngredientType.FIRE_EXTINGUISHER &&
-      (this.keys['Space'] || this.hud.inputs.isActionPressed);
+      (this.currentUnifiedInputs.isActionPressed || this.keys['Space'] || this.hud.inputs.isActionPressed);
 
     if (isSpraying) {
       this.sprayEffectTimer += delta;
@@ -1297,6 +1345,7 @@ export class GameScene3D {
     else if (item.type === IngredientType.CHEESE) item.type = IngredientType.SLICED_CHEESE;
     else if (item.type === IngredientType.ONION) item.type = IngredientType.SLICED_ONION;
     else if (item.type === IngredientType.POTATO) item.type = IngredientType.CHOPPED_POTATO;
+    else if (item.type === IngredientType.MUSHROOM) item.type = IngredientType.SLICED_MUSHROOM;
   }
 
   private processMobileActions() {
@@ -1453,6 +1502,12 @@ export class GameScene3D {
     else if (counter.type === CounterType.CRATE_LETTUCE) spawnType = IngredientType.LETTUCE;
     else if (counter.type === CounterType.CRATE_TOMATO) spawnType = IngredientType.TOMATO;
     else if (counter.type === CounterType.CRATE_CHEESE) spawnType = IngredientType.CHEESE;
+    else if (counter.type === CounterType.CRATE_MUSHROOM) spawnType = IngredientType.MUSHROOM;
+    else if (counter.type === CounterType.CRATE_ONION) spawnType = IngredientType.ONION;
+    else if (counter.type === CounterType.CRATE_POTATO) spawnType = IngredientType.POTATO;
+    else if (counter.type === CounterType.CRATE_FISH) spawnType = IngredientType.FISH;
+    else if (counter.type === CounterType.CRATE_SHRIMP) spawnType = IngredientType.SHRIMP;
+    else if (counter.type === CounterType.CRATE_CHICKEN) spawnType = IngredientType.CHICKEN;
     else if (counter.type === CounterType.CRATE_PLATE) spawnType = IngredientType.PLATE;
 
     this.setHeldItem({
@@ -2004,6 +2059,10 @@ export class GameScene3D {
 
     if (this.hud) {
       this.hud.destroy();
+    }
+
+    if (this.inputManager) {
+      this.inputManager.destroy();
     }
 
     if (this.renderer && this.renderer.domElement && this.renderer.domElement.parentNode) {

@@ -59,6 +59,7 @@ export class GameScene extends Phaser.Scene {
   private networkCombo = 1;
   private currentRoomCode = '';
   private currentMap: KitchenMapId = KitchenMapId.TRADITIONAL;
+  private currentLevelId: string = '1-1';
   private currentSkin: string = 'chef_classic';
   private initialPlayerCount: number = 1;
 
@@ -66,10 +67,11 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
-  init(data: { isMultiplayer?: boolean; roomCode?: string; mapId?: KitchenMapId; skin?: string; players?: any[] }) {
+  init(data: { isMultiplayer?: boolean; roomCode?: string; mapId?: KitchenMapId; levelId?: string; skin?: string; players?: any[] }) {
     this.isMultiplayer = Boolean(data && data.isMultiplayer);
     this.currentRoomCode = (data && data.roomCode) || (this.network.room as any)?.options?.roomCode || '';
     this.currentMap = (data && data.mapId) || KitchenMapId.TRADITIONAL;
+    this.currentLevelId = (data && data.levelId) || '1-1';
     this.currentSkin = (data && data.skin) || 'chef_classic';
     this.initialPlayerCount = Array.isArray(data?.players) && data.players.length > 0 ? data.players.length : 1;
   }
@@ -88,6 +90,7 @@ export class GameScene extends Phaser.Scene {
       isMultiplayer: this.isMultiplayer,
       roomCode: this.currentRoomCode,
       mapId: this.currentMap,
+      levelId: this.currentLevelId,
       skin: this.currentSkin,
       playerCount: this.initialPlayerCount,
       playerName: localStorage.getItem('kitchen_chaos_player_name') || 'Đầu Bếp',
@@ -100,6 +103,40 @@ export class GameScene extends Phaser.Scene {
         }
         this.network.leaveRoom();
         this.scene.start('LobbyScene');
+      },
+      onRetry: () => {
+        try {
+          this.game.loop.wake();
+        } catch (_) {}
+        if (this.game.canvas) {
+          this.game.canvas.style.display = 'block';
+        }
+        this.gameScene3D?.destroy();
+        this.gameScene3D = undefined;
+        this.scene.restart({
+          isMultiplayer: this.isMultiplayer,
+          roomCode: this.currentRoomCode,
+          mapId: this.currentMap,
+          levelId: this.currentLevelId,
+          skin: this.currentSkin
+        });
+      },
+      onNextLevel: (nextLevelId: string) => {
+        try {
+          this.game.loop.wake();
+        } catch (_) {}
+        if (this.game.canvas) {
+          this.game.canvas.style.display = 'block';
+        }
+        this.gameScene3D?.destroy();
+        this.gameScene3D = undefined;
+        this.scene.restart({
+          isMultiplayer: this.isMultiplayer,
+          roomCode: this.currentRoomCode,
+          mapId: this.currentMap,
+          levelId: nextLevelId,
+          skin: this.currentSkin
+        });
       }
     });
 

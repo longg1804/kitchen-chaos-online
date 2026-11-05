@@ -586,6 +586,137 @@ export class TextureGenerator3D {
         ctx.arc(hx, hy, hr, 0, Math.PI * 2);
         ctx.fill();
       });
+    } else if (crateType === 'crate_mushroom') {
+      // Cartoon Mushroom Cap & Stem
+      // Stem
+      ctx.fillStyle = '#fef08a';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.roundRect(-14, 6, 28, 28, [4, 4, 10, 10]);
+      ctx.fill();
+      ctx.stroke();
+
+      // Cap
+      ctx.fillStyle = '#b45309';
+      ctx.beginPath();
+      ctx.arc(0, 8, 44, Math.PI, 0, false);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // White spots
+      ctx.fillStyle = '#ffffff';
+      const spots = [[-20, -12, 7], [0, -22, 9], [22, -10, 6], [-2, -6, 6]];
+      spots.forEach(([sx, sy, sr]) => {
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (crateType === 'crate_onion') {
+      // Cartoon Red/Purple Onion
+      ctx.fillStyle = '#9333ea';
+      ctx.strokeStyle = '#581c87';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(0, 6, 38, 36, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Onion Sprout
+      ctx.fillStyle = '#22c55e';
+      ctx.strokeStyle = '#14532d';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-6, -26);
+      ctx.lineTo(0, -42);
+      ctx.lineTo(6, -26);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (crateType === 'crate_potato') {
+      // Cartoon Golden Potato
+      ctx.fillStyle = '#ca8a04';
+      ctx.strokeStyle = '#713f12';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 44, 32, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Potato spots
+      ctx.fillStyle = '#854d0e';
+      [[-16, -10], [12, -8], [-4, 12], [22, 8]].forEach(([px, py]) => {
+        ctx.beginPath();
+        ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (crateType === 'crate_fish') {
+      // Cartoon Ocean Fish
+      ctx.fillStyle = '#0284c7';
+      ctx.strokeStyle = '#075985';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(-6, 2, 38, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Tail fin
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.moveTo(26, 2);
+      ctx.lineTo(44, -16);
+      ctx.lineTo(44, 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Eye
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-26, -4, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-27, -4, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (crateType === 'crate_shrimp') {
+      // Cartoon Pink Shrimp / Prawn
+      ctx.fillStyle = '#f87171';
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(0, 0, 32, -Math.PI * 0.8, Math.PI * 0.5, false);
+      ctx.lineWidth = 14;
+      ctx.stroke();
+
+      // Head & eye
+      ctx.lineWidth = 6;
+      ctx.fillStyle = '#fca5a5';
+      ctx.beginPath();
+      ctx.arc(-18, -14, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(-20, -16, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (crateType === 'crate_chicken') {
+      // Cartoon Golden Roast Drumstick
+      ctx.fillStyle = '#f59e0b';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(8, -4, 34, 24, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Bone
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(-26, 16, 10, 6, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     } else {
       // Ceramic Plate with blue rim
       ctx.fillStyle = '#ffffff';

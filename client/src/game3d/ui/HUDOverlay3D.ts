@@ -10,6 +10,19 @@ export interface MobileInputsState {
   isDashJustPressed: boolean;
 }
 
+export interface GameOverDetails {
+  score: number;
+  levelId?: string;
+  levelName?: string;
+  starsEarned?: number;
+  starThresholds?: [number, number, number];
+  highScore?: number;
+  newHighScore?: boolean;
+  onRetry?: () => void;
+  onNextLevel?: () => void;
+  hasNextLevel?: boolean;
+}
+
 export class HUDOverlay3D {
   public container: HTMLElement;
   public inputs: MobileInputsState = {
@@ -1832,11 +1845,166 @@ export class HUDOverlay3D {
     this.container.appendChild(this.gameOverEl);
   }
 
-  public showGameOver(score: number) {
-    const finalScore = this.gameOverEl.querySelector('#final-score');
-    if (finalScore) {
-      finalScore.innerHTML = `${score} <span style="font-size: 24px; color: #fbbf24;">ĐIỂM</span>`;
+  public showGameOver(scoreOrDetails: number | GameOverDetails) {
+    const details: GameOverDetails =
+      typeof scoreOrDetails === 'number' ? { score: scoreOrDetails } : scoreOrDetails;
+
+    const score = details.score;
+    const stars = details.starsEarned ?? 0;
+    const isWin = stars >= 1;
+    const thresholds = details.starThresholds || [80, 160, 240];
+
+    const starSVGs = [1, 2, 3].map((starIdx) => {
+      const earned = starIdx <= stars;
+      return `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="
+            font-size: clamp(38px, 8vmin, 54px);
+            filter: ${earned ? 'drop-shadow(0 0 14px #fbbf24) drop-shadow(0 4px 6px rgba(0,0,0,0.5))' : 'grayscale(1) opacity(0.35)'};
+            transform: ${earned ? 'scale(1.1)' : 'scale(0.92)'};
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+          ">⭐</div>
+          <div style="font-size: 11px; font-weight: 800; color: ${earned ? '#fde047' : '#64748b'};">
+            ${thresholds[starIdx - 1]}đ
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    this.gameOverEl.innerHTML = `
+      <div style="
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        border: 4px solid ${isWin ? '#fbbf24' : '#64748b'};
+        border-radius: 24px;
+        padding: clamp(16px, 3.5vh, 28px) clamp(20px, 4vw, 36px);
+        text-align: center;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.85);
+        max-width: 440px;
+        width: 90%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        box-sizing: border-box;
+      ">
+        <div style="
+          background: ${isWin ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)' : '#334155'};
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.8px;
+          padding: 4px 14px;
+          border-radius: 9999px;
+          border: 2px solid ${isWin ? '#fef08a' : '#64748b'};
+          text-transform: uppercase;
+        ">
+          ${details.levelName || 'KẾT THÚC CA NẤU'}
+        </div>
+
+        <h1 style="
+          color: ${isWin ? '#fbbf24' : '#f87171'};
+          font-size: clamp(24px, 5.5vmin, 32px);
+          font-weight: 900;
+          margin: 0;
+          text-shadow: 0 3px 6px rgba(0,0,0,0.5);
+        ">
+          ${isWin ? '🎉 CHIẾN THẮNG! 🎉' : '⏰ HẾT GIỜ!'}
+        </h1>
+
+        <!-- 3 Stars Display -->
+        <div style="display: flex; justify-content: center; gap: 24px; margin: 4px 0;">
+          ${starSVGs}
+        </div>
+
+        <!-- Score Badge -->
+        <div style="
+          background: rgba(15, 23, 42, 0.7);
+          border: 2px solid #334155;
+          border-radius: 16px;
+          padding: 10px 24px;
+          width: 100%;
+          box-sizing: border-box;
+        ">
+          <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Điểm Đạt Được</div>
+          <div id="final-score" style="font-size: clamp(30px, 6.5vmin, 42px); font-weight: 900; color: #38bdf8; text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);">
+            ${score} <span style="font-size: 20px; color: #fbbf24;">ĐIỂM</span>
+          </div>
+          ${details.newHighScore ? '<div style="color: #4ade80; font-size: 12px; font-weight: 900; margin-top: 2px;">👑 KỶ LỤC MỚI CỦA BẠN!</div>' : ''}
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 6px;">
+          ${
+            details.hasNextLevel && isWin
+              ? `
+              <button id="btn-next-level" style="
+                background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+                color: #ffffff;
+                border: 3px solid #6ee7b7;
+                padding: 12px 20px;
+                font-size: 15px;
+                font-weight: 900;
+                border-radius: 14px;
+                cursor: pointer;
+                box-shadow: 0 5px 0 #064e3b;
+              ">
+                ⏭️ MÀN TIẾP THEO
+              </button>
+            `
+              : ''
+          }
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <button id="btn-retry-level" style="
+              flex: 1;
+              background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+              color: #ffffff;
+              border: 3px solid #fef08a;
+              padding: 10px 14px;
+              font-size: 14px;
+              font-weight: 900;
+              border-radius: 14px;
+              cursor: pointer;
+              box-shadow: 0 4px 0 #78350f;
+            ">
+              🔄 CHƠI LẠI
+            </button>
+            <button id="btn-back-lobby" style="
+              flex: 1;
+              background: #334155;
+              color: #ffffff;
+              border: 3px solid #64748b;
+              padding: 10px 14px;
+              font-size: 14px;
+              font-weight: 900;
+              border-radius: 14px;
+              cursor: pointer;
+              box-shadow: 0 4px 0 #1e293b;
+            ">
+              🗺️ BẢN ĐỒ
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const nextBtn = this.gameOverEl.querySelector('#btn-next-level');
+    if (nextBtn && details.onNextLevel) {
+      nextBtn.addEventListener('click', () => details.onNextLevel!());
     }
+
+    const retryBtn = this.gameOverEl.querySelector('#btn-retry-level');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        if (details.onRetry) details.onRetry();
+        else this.onExitCallback();
+      });
+    }
+
+    const backBtn = this.gameOverEl.querySelector('#btn-back-lobby');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => this.onExitCallback());
+    }
+
     this.gameOverEl.style.display = 'flex';
   }
 

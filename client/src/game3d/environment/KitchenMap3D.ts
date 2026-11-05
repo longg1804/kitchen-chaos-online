@@ -401,47 +401,219 @@ export class KitchenMap3D {
       this.createCounter(id, type, x, z);
     };
 
-    // Standard Overcooked Kitchen Layout in 3D Space
-    // TOP ROW (r = -3, along the back subway wall)
-    add(-4, -3, CounterType.CLEAR);
-    add(-3, -3, CounterType.CLEAR);
-    add(-2, -3, CounterType.DELIVERY);
-    add(-1, -3, CounterType.DELIVERY);
-    add(0, -3, CounterType.CLEAR);
-    add(1, -3, CounterType.CLEAR);
-    add(2, -3, CounterType.TRASH);
-    add(3, -3, CounterType.CLEAR);
-    add(4, -3, CounterType.CLEAR);
+    if (mapType === 'farm') {
+      // WORLD 2: FARM & SALAD KITCHEN
+      // Top row
+      add(-4, -3, CounterType.CLEAR);
+      add(-3, -3, CounterType.CLEAR);
+      add(-2, -3, CounterType.DELIVERY);
+      add(-1, -3, CounterType.DELIVERY);
+      add(0, -3, CounterType.CLEAR);
+      add(1, -3, CounterType.CLEAR);
+      add(2, -3, CounterType.TRASH);
+      add(3, -3, CounterType.CLEAR);
+      add(4, -3, CounterType.CLEAR);
 
-    // LEFT COLUMN (c = -4, cooking & raw meat/bread)
-    add(-4, -2, CounterType.CRATE_BREAD);
-    add(-4, -1, CounterType.CRATE_MEAT);
-    add(-4, 0, CounterType.STOVE);
-    add(-4, 1, CounterType.STOVE);
-    add(-4, 2, CounterType.CLEAR);
+      // Left column: fresh farm veggies & cheese
+      add(-4, -2, CounterType.CRATE_LETTUCE);
+      add(-4, -1, CounterType.CRATE_TOMATO);
+      add(-4, 0, CounterType.CRATE_ONION);
+      add(-4, 1, CounterType.CRATE_POTATO);
+      add(-4, 2, CounterType.CRATE_CHEESE);
 
-    // RIGHT COLUMN (c = 4, veggies, cheese & prep thớt)
-    add(4, -2, CounterType.CRATE_LETTUCE);
-    add(4, -1, CounterType.CRATE_TOMATO);
-    add(4, 0, CounterType.CRATE_CHEESE);
-    add(4, 1, CounterType.CUTTING_BOARD);
-    add(4, 2, CounterType.CUTTING_BOARD);
+      // Right column: 4 cutting boards for team chopping
+      add(4, -2, CounterType.CUTTING_BOARD);
+      add(4, -1, CounterType.CUTTING_BOARD);
+      add(4, 0, CounterType.CUTTING_BOARD);
+      add(4, 1, CounterType.CUTTING_BOARD);
+      add(4, 2, CounterType.CLEAR);
 
-    // BOTTOM ROW (r = 3, plate station & prep counter)
-    add(-4, 3, CounterType.CLEAR);
-    add(-3, 3, CounterType.CRATE_PLATE);
-    add(-2, 3, CounterType.CRATE_PLATE);
-    add(-1, 3, CounterType.CLEAR);
-    add(0, 3, CounterType.CLEAR);
-    add(1, 3, CounterType.CLEAR);
-    add(2, 3, CounterType.CLEAR);
-    add(3, 3, CounterType.CLEAR);
-    add(4, 3, CounterType.CLEAR);
+      // Bottom row: plate station & tables
+      add(-4, 3, CounterType.CLEAR);
+      add(-3, 3, CounterType.CRATE_PLATE);
+      add(-2, 3, CounterType.CRATE_PLATE);
+      add(-1, 3, CounterType.CLEAR);
+      add(0, 3, CounterType.CLEAR);
+      add(1, 3, CounterType.CLEAR);
+      add(2, 3, CounterType.CLEAR);
+      add(3, 3, CounterType.CLEAR);
+      add(4, 3, CounterType.CLEAR);
 
-    // CENTER PASS-THROUGH ISLAND
-    add(-1, 0, CounterType.CLEAR);
-    add(0, 0, CounterType.CLEAR);
-    add(1, 0, CounterType.CLEAR);
+      // Center pass-through
+      add(-1, 0, CounterType.CLEAR);
+      add(0, 0, CounterType.CLEAR);
+      add(1, 0, CounterType.CLEAR);
+    } else if (mapType === 'pizza') {
+      // WORLD 3: PIZZA HOUSE KITCHEN
+      // Top row
+      add(-4, -3, CounterType.CLEAR);
+      add(-3, -3, CounterType.CLEAR);
+      add(-2, -3, CounterType.DELIVERY);
+      add(-1, -3, CounterType.DELIVERY);
+      add(0, -3, CounterType.CLEAR);
+      add(1, -3, CounterType.CLEAR);
+      add(2, -3, CounterType.TRASH);
+      add(3, -3, CounterType.CLEAR);
+      add(4, -3, CounterType.CLEAR);
+
+      // Left column: Dough & Ovens/Stoves
+      add(-4, -2, CounterType.CRATE_BREAD);
+      add(-4, -1, CounterType.STOVE);
+      add(-4, 0, CounterType.STOVE);
+      add(-4, 1, CounterType.STOVE);
+      add(-4, 2, CounterType.CLEAR);
+
+      // Right column: Cheese, Tomato, Mushroom & Cutting Boards
+      add(4, -2, CounterType.CRATE_CHEESE);
+      add(4, -1, CounterType.CRATE_TOMATO);
+      add(4, 0, CounterType.CRATE_MUSHROOM);
+      add(4, 1, CounterType.CUTTING_BOARD);
+      add(4, 2, CounterType.CUTTING_BOARD);
+
+      // Bottom row: plate station
+      add(-4, 3, CounterType.CLEAR);
+      add(-3, 3, CounterType.CRATE_PLATE);
+      add(-2, 3, CounterType.CRATE_PLATE);
+      add(-1, 3, CounterType.CLEAR);
+      add(0, 3, CounterType.CLEAR);
+      add(1, 3, CounterType.CLEAR);
+      add(2, 3, CounterType.CLEAR);
+      add(3, 3, CounterType.CLEAR);
+      add(4, 3, CounterType.CLEAR);
+
+      // Center pass-through
+      add(-1, 0, CounterType.CLEAR);
+      add(0, 0, CounterType.CLEAR);
+      add(1, 0, CounterType.CLEAR);
+    } else if (mapType === 'sushi') {
+      // WORLD 4: SUSHI & SEAFOOD KITCHEN
+      // Top row
+      add(-4, -3, CounterType.CLEAR);
+      add(-3, -3, CounterType.CLEAR);
+      add(-2, -3, CounterType.DELIVERY);
+      add(-1, -3, CounterType.DELIVERY);
+      add(0, -3, CounterType.CLEAR);
+      add(1, -3, CounterType.CLEAR);
+      add(2, -3, CounterType.TRASH);
+      add(3, -3, CounterType.CLEAR);
+      add(4, -3, CounterType.CLEAR);
+
+      // Left column: Fresh Seafood & Stoves
+      add(-4, -2, CounterType.CRATE_FISH);
+      add(-4, -1, CounterType.CRATE_SHRIMP);
+      add(-4, 0, CounterType.STOVE);
+      add(-4, 1, CounterType.STOVE);
+      add(-4, 2, CounterType.CLEAR);
+
+      // Right column: Veggies & Cutting Boards
+      add(4, -2, CounterType.CRATE_LETTUCE);
+      add(4, -1, CounterType.CRATE_TOMATO);
+      add(4, 0, CounterType.CUTTING_BOARD);
+      add(4, 1, CounterType.CUTTING_BOARD);
+      add(4, 2, CounterType.CLEAR);
+
+      // Bottom row: plate station
+      add(-4, 3, CounterType.CLEAR);
+      add(-3, 3, CounterType.CRATE_PLATE);
+      add(-2, 3, CounterType.CRATE_PLATE);
+      add(-1, 3, CounterType.CLEAR);
+      add(0, 3, CounterType.CLEAR);
+      add(1, 3, CounterType.CLEAR);
+      add(2, 3, CounterType.CLEAR);
+      add(3, 3, CounterType.CLEAR);
+      add(4, 3, CounterType.CLEAR);
+
+      // Center pass-through
+      add(-1, 0, CounterType.CLEAR);
+      add(0, 0, CounterType.CLEAR);
+      add(1, 0, CounterType.CLEAR);
+    } else if (mapType === 'split_kitchen' || mapType === 'chaotic') {
+      // WORLD 5: SPLIT CHAOTIC KITCHEN WITH CENTER CONVEYOR / DIVIDER
+      // Top row
+      add(-4, -3, CounterType.CLEAR);
+      add(-3, -3, CounterType.CLEAR);
+      add(-2, -3, CounterType.DELIVERY);
+      add(-1, -3, CounterType.DELIVERY);
+      add(0, -3, CounterType.CLEAR);
+      add(1, -3, CounterType.CLEAR);
+      add(2, -3, CounterType.TRASH);
+      add(3, -3, CounterType.CLEAR);
+      add(4, -3, CounterType.CLEAR);
+
+      // Left column: Ingredients
+      add(-4, -2, CounterType.CRATE_BREAD);
+      add(-4, -1, CounterType.CRATE_MEAT);
+      add(-4, 0, CounterType.CRATE_CHEESE);
+      add(-4, 1, CounterType.CRATE_TOMATO);
+      add(-4, 2, CounterType.CRATE_CHICKEN);
+
+      // Right column: Prep & Stoves
+      add(4, -2, CounterType.STOVE);
+      add(4, -1, CounterType.STOVE);
+      add(4, 0, CounterType.CUTTING_BOARD);
+      add(4, 1, CounterType.CUTTING_BOARD);
+      add(4, 2, CounterType.CLEAR);
+
+      // Bottom row
+      add(-4, 3, CounterType.CLEAR);
+      add(-3, 3, CounterType.CRATE_PLATE);
+      add(-2, 3, CounterType.CRATE_PLATE);
+      add(-1, 3, CounterType.CLEAR);
+      add(0, 3, CounterType.CLEAR);
+      add(1, 3, CounterType.CLEAR);
+      add(2, 3, CounterType.CLEAR);
+      add(3, 3, CounterType.CLEAR);
+      add(4, 3, CounterType.CLEAR);
+
+      // Center Divider Pass (Players must toss items across!)
+      add(0, -2, CounterType.CLEAR);
+      add(0, -1, CounterType.CLEAR);
+      add(0, 0, CounterType.CLEAR);
+      add(0, 1, CounterType.CLEAR);
+      add(0, 2, CounterType.CLEAR);
+    } else {
+      // Standard Overcooked Kitchen Layout in 3D Space (Traditional / Burger)
+      // TOP ROW (r = -3, along the back subway wall)
+      add(-4, -3, CounterType.CLEAR);
+      add(-3, -3, CounterType.CLEAR);
+      add(-2, -3, CounterType.DELIVERY);
+      add(-1, -3, CounterType.DELIVERY);
+      add(0, -3, CounterType.CLEAR);
+      add(1, -3, CounterType.CLEAR);
+      add(2, -3, CounterType.TRASH);
+      add(3, -3, CounterType.CLEAR);
+      add(4, -3, CounterType.CLEAR);
+
+      // LEFT COLUMN (c = -4, cooking & raw meat/bread)
+      add(-4, -2, CounterType.CRATE_BREAD);
+      add(-4, -1, CounterType.CRATE_MEAT);
+      add(-4, 0, CounterType.STOVE);
+      add(-4, 1, CounterType.STOVE);
+      add(-4, 2, CounterType.CLEAR);
+
+      // RIGHT COLUMN (c = 4, veggies, cheese & prep thớt)
+      add(4, -2, CounterType.CRATE_LETTUCE);
+      add(4, -1, CounterType.CRATE_TOMATO);
+      add(4, 0, CounterType.CRATE_CHEESE);
+      add(4, 1, CounterType.CUTTING_BOARD);
+      add(4, 2, CounterType.CUTTING_BOARD);
+
+      // BOTTOM ROW (r = 3, plate station & prep counter)
+      add(-4, 3, CounterType.CLEAR);
+      add(-3, 3, CounterType.CRATE_PLATE);
+      add(-2, 3, CounterType.CRATE_PLATE);
+      add(-1, 3, CounterType.CLEAR);
+      add(0, 3, CounterType.CLEAR);
+      add(1, 3, CounterType.CLEAR);
+      add(2, 3, CounterType.CLEAR);
+      add(3, 3, CounterType.CLEAR);
+      add(4, 3, CounterType.CLEAR);
+
+      // CENTER PASS-THROUGH ISLAND
+      add(-1, 0, CounterType.CLEAR);
+      add(0, 0, CounterType.CLEAR);
+      add(1, 0, CounterType.CLEAR);
+    }
   }
 
   public createCounter(id: string, type: CounterType, x: number, z: number): Counter3DData {

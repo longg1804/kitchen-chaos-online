@@ -75,6 +75,48 @@ async function runTestSuite() {
     await desktopContext.close();
 
     // -------------------------------------------------------------
+    // TEST 1.5: CAMPAIGN MODE & WORLD MAP
+    // -------------------------------------------------------------
+    console.log('\n[TEST 1.5] Testing Campaign Mode, World Map & Level Preview...');
+    const campaignContext = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const campaignPage = await campaignContext.newPage();
+    campaignPage.on('pageerror', (err) => logError(`[Campaign PageError] ${err.message}`));
+
+    await campaignPage.goto('http://localhost:3000', { waitUntil: 'domcontentloaded' });
+    await campaignPage.waitForTimeout(1500);
+
+    // Verify Campaign Banner Button is present
+    const campaignBtn = campaignPage.locator('.kc-campaign-banner-btn');
+    await campaignBtn.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('-> Campaign Banner visible, clicking to open World Map...');
+    await campaignBtn.click();
+
+    // Verify World Map modal is visible
+    await campaignPage.waitForSelector('.kc-worldmap-card', { timeout: 5000 });
+    await campaignPage.waitForTimeout(600);
+    await campaignPage.screenshot({ path: path.join(SCREENSHOT_DIR, '01b_campaign_world_map.png') });
+    console.log('-> Captured 01b_campaign_world_map.png');
+
+    // Click Level 1-1 Node
+    const level11Node = campaignPage.locator('.kc-level-node').first();
+    await level11Node.click();
+    await campaignPage.waitForSelector('#kc-level-preview-modal', { timeout: 5000 });
+    await campaignPage.waitForTimeout(500);
+    await campaignPage.screenshot({ path: path.join(SCREENSHOT_DIR, '01c_level_preview_modal.png') });
+    console.log('-> Captured 01c_level_preview_modal.png');
+
+    // Start Level 1-1 from Preview Modal
+    const startLevelBtn = campaignPage.locator('#kc-preview-start-btn');
+    await startLevelBtn.click();
+    console.log('-> Clicked Start Level, waiting for 3D Game Scene...');
+    await campaignPage.waitForSelector('#hud-overlay-3d', { timeout: 8000 });
+    await campaignPage.waitForTimeout(1500);
+
+    await campaignPage.screenshot({ path: path.join(SCREENSHOT_DIR, '01d_campaign_level_1_1_gameplay.png') });
+    console.log('-> Captured 01d_campaign_level_1_1_gameplay.png');
+    await campaignContext.close();
+
+    // -------------------------------------------------------------
     // TEST 2: MOBILE TOUCH & 2x2 BUTTON CLUSTER
     // -------------------------------------------------------------
     console.log('\n[TEST 2] Testing Mobile Landscape 844x390 Touch & HUD Controls...');

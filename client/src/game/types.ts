@@ -44,6 +44,12 @@ export enum CounterType {
   CRATE_LETTUCE = 'crate_lettuce', // Thùng xà lách
   CRATE_TOMATO = 'crate_tomato', // Thùng cà chua
   CRATE_CHEESE = 'crate_cheese', // Thùng phô mai
+  CRATE_MUSHROOM = 'crate_mushroom', // Thùng nấm
+  CRATE_ONION = 'crate_onion',   // Thùng hành tây
+  CRATE_POTATO = 'crate_potato', // Thùng khoai tây
+  CRATE_FISH = 'crate_fish',     // Thùng cá tươi
+  CRATE_SHRIMP = 'crate_shrimp', // Thùng tôm
+  CRATE_CHICKEN = 'crate_chicken', // Thùng gà
   CRATE_PLATE = 'crate_plate',   // Giá để đĩa
   CUTTING_BOARD = 'cutting_board', // Thớt cắt
   STOVE = 'stove',               // Bếp nướng chảo

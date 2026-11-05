@@ -12,6 +12,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
   private timerSyncAccum = 0;
   private orderCounter = 0;
   private currentMapId = 'traditional';
+  private currentLevelId = '1-1';
   private counters3d = new Map<string, any>();
   private heldItems3d = new Map<string, any>();
 
@@ -54,12 +55,22 @@ export class KitchenRoom extends Room<KitchenRoomState> {
 
     this.initKitchenMap();
 
-    // Map change from host
-    this.onMessage('change_map', (client, data: { mapId: string }) => {
+    // Map & Level change from host
+    this.onMessage('change_map', (client, data: { mapId: string; levelId?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (player && player.isHost) {
         this.currentMapId = data.mapId;
-        this.broadcast('map_changed', { mapId: data.mapId });
+        if (data.levelId) this.currentLevelId = data.levelId;
+        this.broadcast('map_changed', { mapId: data.mapId, levelId: this.currentLevelId });
+      }
+    });
+
+    this.onMessage('change_level', (client, data: { levelId: string; mapId?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player && player.isHost) {
+        this.currentLevelId = data.levelId;
+        if (data.mapId) this.currentMapId = data.mapId;
+        this.broadcast('level_changed', { levelId: this.currentLevelId, mapId: this.currentMapId });
       }
     });
 
@@ -91,6 +102,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         this.broadcast('game_started', {
           roomCode: this.state.roomCode,
           mapId: this.currentMapId,
+          levelId: this.currentLevelId,
           players: playersList,
           orders: ordersList,
           score: this.state.score,

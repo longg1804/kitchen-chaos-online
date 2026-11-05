@@ -1,12 +1,17 @@
 import Phaser from 'phaser';
 import { NetworkManager } from '../../multiplayer/NetworkManager';
 import { ChefSkin, KitchenMapId } from '../types';
+import { CampaignProgressManager } from '../config/CampaignProgress';
+import { CAMPAIGN_WORLDS, WorldConfig, LevelConfig } from '../config/CampaignWorlds';
+import { CAMPAIGN_RECIPES } from '../config/CampaignRecipes';
 
 export class LobbyScene extends Phaser.Scene {
   private network = NetworkManager.getInstance();
   private playerName: string = 'Đầu Bếp';
   private selectedSkin: ChefSkin = ChefSkin.CLASSIC;
   private selectedMap: KitchenMapId = KitchenMapId.TRADITIONAL;
+  private selectedLevelId: string = '1-1';
+  private activeWorldIndex: number = 0;
   private isInRoom = false;
   private currentRoomCode: string = '';
   private currentPlayers: any[] = [];
@@ -14,9 +19,11 @@ export class LobbyScene extends Phaser.Scene {
   private domRoot?: HTMLElement;
   private mainViewEl?: HTMLElement;
   private roomViewEl?: HTMLElement;
+  private worldMapOverlayEl?: HTMLElement;
   private nameTextEl?: HTMLElement;
   private statusBannerEl?: HTMLElement;
   private roomCodeValueEl?: HTMLElement;
+  private roomLevelBadgeEl?: HTMLElement;
   private playerListEl?: HTMLElement;
   private mapSelectorWrapEl?: HTMLElement;
   private startBtnEl?: HTMLButtonElement;
@@ -416,6 +423,111 @@ export class LobbyScene extends Phaser.Scene {
         color: #451a03;
         box-shadow: 0 3px 0 #78350f;
       }
+      /* Campaign Mode & World Map Styles */
+      .kc-campaign-banner-btn {
+        width: 100%;
+        max-width: 680px;
+        background: linear-gradient(180deg, #f59e0b 0%, #d97706 70%, #b45309 100%);
+        border: 3.5px solid #fef08a;
+        border-radius: 20px;
+        padding: clamp(10px, 1.8vh, 14px) clamp(14px, 2.6vw, 22px);
+        color: #ffffff;
+        cursor: pointer;
+        box-shadow: 0 6px 0 #78350f, 0 12px 24px rgba(245, 158, 11, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-sizing: border-box;
+        transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+        outline: none;
+      }
+      .kc-campaign-banner-btn:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.06);
+        box-shadow: 0 8px 0 #78350f, 0 14px 28px rgba(251, 191, 36, 0.55);
+      }
+      .kc-campaign-banner-btn:active {
+        transform: translateY(3px);
+        box-shadow: 0 2px 0 #78350f, 0 4px 10px rgba(0, 0, 0, 0.4);
+      }
+      .kc-worldmap-overlay {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(11, 15, 25, 0.94);
+        backdrop-filter: blur(14px);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: clamp(10px, 2.5vh, 20px);
+        box-sizing: border-box;
+      }
+      .kc-worldmap-card {
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        border: 4px solid #f59e0b;
+        border-radius: 26px;
+        padding: clamp(14px, 2.5vh, 24px);
+        box-shadow: 0 16px 40px rgba(0,0,0,0.85);
+        max-width: 820px;
+        width: 100%;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      .kc-world-tab {
+        background: #334155;
+        border: 2px solid #64748b;
+        border-radius: 12px;
+        padding: 6px 12px;
+        color: #f1f5f9;
+        font-size: clamp(11px, 2vmin, 13px);
+        font-weight: 900;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.12s ease;
+      }
+      .kc-world-tab.active {
+        background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+        border-color: #fef08a;
+        color: #451a03;
+        box-shadow: 0 3px 0 #78350f;
+      }
+      .kc-levels-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 12px;
+        overflow-y: auto;
+        padding: 4px;
+        max-height: 52vh;
+      }
+      .kc-level-node {
+        background: #1e293b;
+        border: 3px solid #475569;
+        border-radius: 16px;
+        padding: 12px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+        position: relative;
+      }
+      .kc-level-node:hover:not(.locked) {
+        transform: translateY(-3px);
+        border-color: #fde047;
+        box-shadow: 0 6px 18px rgba(250, 204, 21, 0.35);
+      }
+      .kc-level-node.locked {
+        opacity: 0.55;
+        cursor: not-allowed;
+        filter: grayscale(0.5);
+      }
     `;
     document.head.appendChild(style);
   }
@@ -547,6 +659,34 @@ export class LobbyScene extends Phaser.Scene {
       skinGrid.appendChild(card);
     });
     this.mainViewEl.appendChild(skinGrid);
+
+    // 1.35 Prominent Campaign Mode & World Map Banner Button
+    const campaignBtn = document.createElement('button');
+    campaignBtn.type = 'button';
+    campaignBtn.className = 'kc-campaign-banner-btn';
+    const totalStars = CampaignProgressManager.getInstance().getTotalStars();
+    campaignBtn.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:clamp(26px, 5.5vmin, 34px);animation:kcFloatSlow 3s ease-in-out infinite;">🏆</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-start;text-align:left;">
+            <div style="font-size:clamp(14px, 2.7vmin, 18px);font-weight:900;color:#fde047;letter-spacing:0.5px;text-shadow:0 2px 4px rgba(0,0,0,0.6);">
+              CHIẾN DỊCH & BẢN ĐỒ THẾ GIỚI
+            </div>
+            <div style="font-size:clamp(10px, 1.8vmin, 12px);font-weight:700;color:#fed7aa;">
+              5 Thế Giới • 11 Màn Chơi • Món Ăn Mới
+            </div>
+          </div>
+        </div>
+        <div style="background:rgba(15,23,42,0.6);border:2px solid #fbbf24;border-radius:12px;padding:5px 12px;font-size:clamp(12px, 2.2vmin, 14px);font-weight:900;color:#fde047;white-space:nowrap;">
+          ⭐ ${totalStars} / 33 SAO
+        </div>
+      </div>
+    `;
+    campaignBtn.onclick = () => {
+      this.openWorldMapModal();
+    };
+    this.mainViewEl.appendChild(campaignBtn);
 
     // 1.4 Three Equal-Weight Cartoon 3D Action Buttons
     const actionsGrid = document.createElement('div');
@@ -758,6 +898,9 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private destroyCartoonMenuDOM() {
+    this.closeWorldMapModal();
+    const existingModal = document.getElementById('kc-level-preview-modal');
+    if (existingModal && existingModal.parentNode) existingModal.parentNode.removeChild(existingModal);
     if (this.domRoot && this.domRoot.parentNode) {
       this.domRoot.parentNode.removeChild(this.domRoot);
     }
@@ -818,9 +961,18 @@ export class LobbyScene extends Phaser.Scene {
       this.renderPlayerList(list);
     });
 
-    room.onMessage('map_changed', (data: { mapId: KitchenMapId }) => {
+    room.onMessage('map_changed', (data: { mapId: KitchenMapId; levelId?: string }) => {
       this.selectedMap = data.mapId;
+      if (data.levelId) this.selectedLevelId = data.levelId;
       this.mapCardEls.forEach((el, k) => el.classList.toggle('active', k === this.selectedMap));
+      this.updateRoomLevelDisplay();
+    });
+
+    room.onMessage('level_changed', (data: { levelId: string; mapId?: string }) => {
+      this.selectedLevelId = data.levelId;
+      if (data.mapId) this.selectedMap = data.mapId as KitchenMapId;
+      this.mapCardEls.forEach((el, k) => el.classList.toggle('active', k === this.selectedMap));
+      this.updateRoomLevelDisplay();
     });
 
     room.onMessage('game_started', (data: any) => {
@@ -828,7 +980,8 @@ export class LobbyScene extends Phaser.Scene {
       this.scene.start('GameScene', {
         isMultiplayer: true,
         roomCode: data?.roomCode || this.currentRoomCode,
-        mapId: this.selectedMap,
+        mapId: data?.mapId || this.selectedMap,
+        levelId: data?.levelId || this.selectedLevelId || '1-1',
         skin: this.selectedSkin,
         players: data?.players || this.currentPlayers || []
       });
@@ -875,6 +1028,351 @@ export class LobbyScene extends Phaser.Scene {
       this.startBtnEl.style.display = isCurrentHost ? 'flex' : 'none';
       this.mapSelectorWrapEl.style.display = isCurrentHost ? 'flex' : 'none';
     }
+  }
+
+  private updateRoomLevelDisplay() {
+    if (!this.roomLevelBadgeEl) return;
+    const progressMgr = CampaignProgressManager.getInstance();
+    const lvl = progressMgr.getLevelConfig(this.selectedLevelId);
+    if (lvl) {
+      this.roomLevelBadgeEl.textContent = `MÀN HIỆN TẠI: ${lvl.name}`;
+    }
+  }
+
+  private closeWorldMapModal() {
+    if (this.worldMapOverlayEl && this.worldMapOverlayEl.parentNode) {
+      this.worldMapOverlayEl.parentNode.removeChild(this.worldMapOverlayEl);
+    }
+    this.worldMapOverlayEl = undefined;
+  }
+
+  private openWorldMapModal() {
+    this.closeWorldMapModal();
+
+    const progressMgr = CampaignProgressManager.getInstance();
+    const totalStars = progressMgr.getTotalStars();
+
+    this.worldMapOverlayEl = document.createElement('div');
+    this.worldMapOverlayEl.className = 'kc-worldmap-overlay';
+
+    const card = document.createElement('div');
+    card.className = 'kc-worldmap-card';
+
+    // Header Row: Back button, Title & Total Stars
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      border-bottom: 2px solid #334155;
+      padding-bottom: 12px;
+    `;
+    header.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="kc-close-worldmap-btn" style="
+          background: #334155;
+          color: #ffffff;
+          border: 2px solid #64748b;
+          border-radius: 12px;
+          padding: 6px 14px;
+          font-weight: 900;
+          font-size: 13px;
+          cursor: pointer;
+        ">◀ Quay Lại</button>
+        <div>
+          <div style="font-size:clamp(16px, 3.2vmin, 22px);font-weight:900;color:#fde047;line-height:1.2;">
+            🗺️ BẢN ĐỒ CHIẾN DỊCH
+          </div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;">
+            Vượt qua từng thế giới để mở khóa công thức đỉnh cao!
+          </div>
+        </div>
+      </div>
+      <div style="
+        background: rgba(15,23,42,0.8);
+        border: 2px solid #fbbf24;
+        border-radius: 9999px;
+        padding: 6px 14px;
+        font-weight: 900;
+        font-size: 13px;
+        color: #fde047;
+      ">
+        ⭐ ${totalStars} / 33 SAO
+      </div>
+    `;
+
+    header.querySelector('#kc-close-worldmap-btn')?.addEventListener('click', () => {
+      this.closeWorldMapModal();
+    });
+
+    card.appendChild(header);
+
+    // World Selection Tabs Bar
+    const tabsBar = document.createElement('div');
+    tabsBar.style.cssText = `
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    `;
+
+    const levelsGrid = document.createElement('div');
+    levelsGrid.className = 'kc-levels-grid';
+
+    const tabEls: HTMLElement[] = [];
+    CAMPAIGN_WORLDS.forEach((world, idx) => {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = `kc-world-tab ${idx === this.activeWorldIndex ? 'active' : ''}`;
+      tab.innerHTML = `${world.badgeEmoji} T${world.id}: ${world.name.replace(/THẾ GIỚI \d+:\s*/, '')}`;
+      tab.onclick = () => {
+        this.activeWorldIndex = idx;
+        tabEls.forEach((t, i) => t.classList.toggle('active', i === this.activeWorldIndex));
+        this.renderWorldMapLevels(levelsGrid, CAMPAIGN_WORLDS[this.activeWorldIndex]);
+      };
+      tabEls.push(tab);
+      tabsBar.appendChild(tab);
+    });
+    card.appendChild(tabsBar);
+
+    // World Description & Theme banner
+    const worldBanner = document.createElement('div');
+    worldBanner.id = 'kc-world-banner';
+    worldBanner.style.cssText = `
+      background: rgba(30, 41, 59, 0.7);
+      border-radius: 12px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #cbd5e1;
+      border-left: 4px solid #f59e0b;
+    `;
+    card.appendChild(worldBanner);
+
+    // Render initial levels
+    this.renderWorldMapLevels(levelsGrid, CAMPAIGN_WORLDS[this.activeWorldIndex]);
+    card.appendChild(levelsGrid);
+
+    this.worldMapOverlayEl.appendChild(card);
+    (this.domRoot || document.body).appendChild(this.worldMapOverlayEl);
+  }
+
+  private renderWorldMapLevels(containerEl: HTMLElement, world: WorldConfig) {
+    containerEl.innerHTML = '';
+    const progressMgr = CampaignProgressManager.getInstance();
+
+    const banner = this.worldMapOverlayEl?.querySelector('#kc-world-banner');
+    if (banner) {
+      banner.innerHTML = `<b>${world.name}</b>: ${world.description}`;
+    }
+
+    world.levels.forEach((lvl) => {
+      const isUnlocked = progressMgr.isLevelUnlocked(lvl.id);
+      const record = progressMgr.getLevelRecord(lvl.id);
+
+      const card = document.createElement('div');
+      card.className = `kc-level-node ${isUnlocked ? '' : 'locked'}`;
+
+      const stars = record.stars;
+      const starsHTML = [1, 2, 3].map((s) => (s <= stars ? '⭐' : '☆')).join(' ');
+
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="background:#2563eb;color:#fff;font-weight:900;font-size:11px;padding:2px 8px;border-radius:6px;">
+            ${lvl.id}
+          </span>
+          <span style="font-size:14px;letter-spacing:2px;color:${stars > 0 ? '#fbbf24' : '#64748b'};">
+            ${starsHTML}
+          </span>
+        </div>
+        <div style="font-weight:900;font-size:14px;color:#f8fafc;margin-top:2px;">
+          ${lvl.name}
+        </div>
+        <div style="font-size:11px;color:#94a3b8;line-height:1.2;">
+          ${lvl.subtitle}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:6px;border-top:1px solid #334155;font-size:11px;font-weight:800;">
+          <span style="color:#38bdf8;">⏱️ ${lvl.timeLimit}s</span>
+          <span style="color:${record.highScore > 0 ? '#4ade80' : '#64748b'};">
+            ${isUnlocked ? (record.highScore > 0 ? `Kỷ lục: ${record.highScore}đ` : 'Chưa đấu') : '🔒 Khóa'}
+          </span>
+        </div>
+      `;
+
+      if (isUnlocked) {
+        card.onclick = () => {
+          this.openLevelPreviewModal(lvl);
+        };
+      } else {
+        card.title = 'Hoàn thành màn trước với ít nhất 1 sao để mở khóa!';
+      }
+
+      containerEl.appendChild(card);
+    });
+  }
+
+  private openLevelPreviewModal(level: LevelConfig) {
+    const existing = document.getElementById('kc-level-preview-modal');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    const modal = document.createElement('div');
+    modal.id = 'kc-level-preview-modal';
+    modal.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 150;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    `;
+
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border: 3.5px solid #fbbf24;
+      border-radius: 22px;
+      padding: clamp(16px, 3vh, 26px);
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-sizing: border-box;
+    `;
+
+    // Recipe list HTML
+    const recipesHTML = level.recipes
+      .map((rId) => {
+        const recipe = CAMPAIGN_RECIPES[rId];
+        if (!recipe) return '';
+        const ingStr = recipe.steps.length > 0 ? recipe.steps[0] : 'Chế biến và phục vụ';
+        return `
+          <div style="background:rgba(15,23,42,0.7);border:1.5px solid #334155;border-radius:10px;padding:6px 10px;display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div style="font-weight:900;font-size:12px;color:#fde047;">${recipe.name}</div>
+              <div style="font-size:10px;color:#94a3b8;">${ingStr}</div>
+            </div>
+            <span style="background:#0284c7;color:#fff;font-weight:900;font-size:11px;padding:2px 8px;border-radius:6px;">
+              +${recipe.baseReward}đ
+            </span>
+          </div>
+        `;
+      })
+      .join('');
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="background:#f59e0b;color:#451a03;font-weight:900;font-size:11px;padding:3px 10px;border-radius:999px;">
+          ${level.id} • ${level.theme.toUpperCase()}
+        </span>
+        <button id="kc-preview-close-btn" style="background:transparent;border:none;color:#94a3b8;font-size:20px;font-weight:900;cursor:pointer;">✕</button>
+      </div>
+
+      <div>
+        <h2 style="font-size:clamp(18px, 4vmin, 24px);font-weight:900;color:#f8fafc;margin:0 0 4px 0;">
+          ${level.name}
+        </h2>
+        <p style="font-size:12px;color:#cbd5e1;margin:0;">
+          ${level.subtitle}
+        </p>
+      </div>
+
+      <!-- Star threshold goals -->
+      <div style="background:rgba(15,23,42,0.8);border:2px solid #334155;border-radius:14px;padding:8px 14px;display:flex;align-items:center;justify-content:space-around;">
+        <div style="text-align:center;"><div style="font-size:16px;">⭐</div><div style="font-size:11px;font-weight:800;color:#fde047;">★ ${level.starThresholds[0]}đ</div></div>
+        <div style="text-align:center;"><div style="font-size:16px;">⭐⭐</div><div style="font-size:11px;font-weight:800;color:#fde047;">★★ ${level.starThresholds[1]}đ</div></div>
+        <div style="text-align:center;"><div style="font-size:16px;">⭐⭐⭐</div><div style="font-size:11px;font-weight:800;color:#fde047;">★★★ ${level.starThresholds[2]}đ</div></div>
+      </div>
+
+      <!-- Recipes -->
+      <div>
+        <div style="font-size:11px;font-weight:900;color:#94a3b8;text-transform:uppercase;margin-bottom:6px;">
+          Món Ăn Yêu Cầu (${level.recipes.length})
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;">
+          ${recipesHTML}
+        </div>
+      </div>
+
+      <!-- Start button -->
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+        <button id="kc-preview-start-btn" style="
+          background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+          color: #ffffff;
+          border: 3px solid #6ee7b7;
+          border-radius: 14px;
+          padding: 12px 20px;
+          font-size: 15px;
+          font-weight: 900;
+          cursor: pointer;
+          box-shadow: 0 4px 0 #064e3b;
+        ">
+          🍳 BẮT ĐẦU NẤU NGAY
+        </button>
+
+        ${
+          this.isInRoom
+            ? `
+            <button id="kc-preview-select-room-btn" style="
+              background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+              color: #ffffff;
+              border: 3px solid #93c5fd;
+              border-radius: 14px;
+              padding: 10px 18px;
+              font-size: 14px;
+              font-weight: 900;
+              cursor: pointer;
+              box-shadow: 0 4px 0 #1d4ed8;
+            ">
+              🚀 CHỌN MÀN NÀY CHO PHÒNG
+            </button>
+          `
+            : ''
+        }
+      </div>
+    `;
+
+    card.querySelector('#kc-preview-close-btn')?.addEventListener('click', () => {
+      if (modal.parentNode) modal.parentNode.removeChild(modal);
+    });
+
+    card.querySelector('#kc-preview-start-btn')?.addEventListener('click', () => {
+      if (modal.parentNode) modal.parentNode.removeChild(modal);
+      this.closeWorldMapModal();
+      this.network.leaveRoom();
+      this.destroyCartoonMenuDOM();
+      this.scene.start('GameScene', {
+        isMultiplayer: false,
+        skin: this.selectedSkin,
+        levelId: level.id,
+        mapId: level.mapLayoutId
+      });
+    });
+
+    const selectRoomBtn = card.querySelector('#kc-preview-select-room-btn');
+    if (selectRoomBtn) {
+      selectRoomBtn.addEventListener('click', () => {
+        this.selectedLevelId = level.id;
+        this.selectedMap = (level.mapLayoutId as KitchenMapId) || KitchenMapId.TRADITIONAL;
+        if (this.network.room) {
+          this.network.room.send('change_level', {
+            levelId: level.id,
+            mapId: level.mapLayoutId
+          });
+        }
+        this.updateRoomLevelDisplay();
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+        this.closeWorldMapModal();
+      });
+    }
+
+    modal.appendChild(card);
+    document.body.appendChild(modal);
   }
 
   private getChefAvatarSVG(skin: ChefSkin): string {
