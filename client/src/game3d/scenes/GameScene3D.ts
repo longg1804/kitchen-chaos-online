@@ -82,44 +82,54 @@ export class GameScene3D {
 
   private initThree() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0b0f19);
+    // Warm Cozy Restaurant Ambiance (No stark pitch black void)
+    this.scene.background = new THREE.Color(0x182030);
 
     // High quality WebGL Renderer with Soft Cartoon Shadows
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: true
+    });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.container.appendChild(this.renderer.domElement);
 
-    // Isometric Camera setup
+    // Overcooked 2 Front-Facing Top-Down Oblique Camera with Auto-Framing
     this.cameraSystem = new IsometricCamera(window.innerWidth / window.innerHeight);
 
-    // Warm, Stylized Lighting (Overcooked atmosphere)
-    const hemiLight = new THREE.HemisphereLight(0xfffaed, 0x334155, 0.75);
+    // 1. Warm Cartoon Hemisphere Light (Peach Sky + Soft Slate Ground)
+    const hemiLight = new THREE.HemisphereLight(0xffedd5, 0x475569, 0.85);
     this.scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.25);
-    sunLight.position.set(10, 16, 8);
+    // 2. Main Key Sun Light (Casts soft directional shadows)
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.35);
+    sunLight.position.set(5, 14, 8);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 40;
-    sunLight.shadow.camera.left = -9;
-    sunLight.shadow.camera.right = 9;
-    sunLight.shadow.camera.top = 9;
-    sunLight.shadow.camera.bottom = -9;
-    sunLight.shadow.bias = -0.0004;
+    sunLight.shadow.camera.far = 35;
+    sunLight.shadow.camera.left = -8;
+    sunLight.shadow.camera.right = 8;
+    sunLight.shadow.camera.top = 7;
+    sunLight.shadow.camera.bottom = -7;
+    sunLight.shadow.bias = -0.0003;
     this.scene.add(sunLight);
 
-    // Soft Fill Point Light
-    const fillLight = new THREE.PointLight(0x38bdf8, 0.6, 18);
-    fillLight.position.set(-4, 6, -2);
-    this.scene.add(fillLight);
+    // 3. Warm Ambient Fill
+    const ambientLight = new THREE.AmbientLight(0xfffbeb, 0.4);
+    this.scene.add(ambientLight);
+
+    // 4. Cool Rim Light from Back for Cartoon Silhouettes
+    const rimLight = new THREE.DirectionalLight(0x7dd3fc, 0.4);
+    rimLight.position.set(-6, 9, -7);
+    this.scene.add(rimLight);
 
     window.addEventListener('resize', this.onResize.bind(this));
   }
@@ -149,11 +159,16 @@ export class GameScene3D {
     this.targetCounterHighlight.visible = false;
     this.scene.add(this.targetCounterHighlight);
 
-    // Initialize HUD Overlay
-    this.hud = new HUDOverlay3D(() => {
-      this.destroy();
-      this.config.onExit();
-    });
+    // Initialize HUD Overlay with Overcooked Top Ticker & Screenshot support
+    this.hud = new HUDOverlay3D(
+      () => {
+        this.destroy();
+        this.config.onExit();
+      },
+      () => {
+        this.takeScreenshot();
+      }
+    );
 
     this.hud.updateOrders(this.recipeManager.getOrders());
   }
@@ -165,6 +180,7 @@ export class GameScene3D {
 
       if (e.code === 'KeyE') this.handlePickupDrop();
       if (e.code === 'KeyQ') this.handleThrow();
+      if (e.code === 'KeyP') this.takeScreenshot();
     });
 
     window.addEventListener('keyup', (e: KeyboardEvent) => {
@@ -653,6 +669,15 @@ export class GameScene3D {
   private onResize() {
     this.cameraSystem.setAspect(window.innerWidth / window.innerHeight);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  public takeScreenshot() {
+    this.renderer.render(this.scene, this.cameraSystem.camera);
+    const dataUrl = this.renderer.domElement.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `kitchen_chaos_3d_${Date.now()}.png`;
+    link.href = dataUrl;
+    link.click();
   }
 
   public destroy() {

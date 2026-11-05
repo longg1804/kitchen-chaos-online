@@ -53,6 +53,17 @@ export class LobbyScene extends Phaser.Scene {
 
   private checkUrlRoomCode() {
     const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    if (mode === 'solo') {
+      this.network.leaveRoom();
+      this.scene.start('GameScene', {
+        isMultiplayer: false,
+        skin: this.selectedSkin,
+        mapId: this.selectedMap
+      });
+      return;
+    }
+
     const roomCode = params.get('room');
     if (roomCode) {
       console.log(`[LobbyScene] Detected room code from URL: ${roomCode}`);

@@ -246,9 +246,9 @@ export class ChefCharacter3D {
     this.knifeMesh.visible = false;
     this.rightHand.add(this.knifeMesh);
 
-    // 7. HAND ANCHOR (Where held food/plate sits directly in front of chef)
+    // 7. HAND ANCHOR (Held food/plate held visibly at chest level)
     this.handAnchor = new THREE.Group();
-    this.handAnchor.position.set(0, 0.42, 0.38);
+    this.handAnchor.position.set(0, 0.62, 0.36);
     this.group.add(this.handAnchor);
   }
 

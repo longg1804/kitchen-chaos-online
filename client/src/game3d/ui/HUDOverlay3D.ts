@@ -25,6 +25,7 @@ export class HUDOverlay3D {
   private ordersContainer!: HTMLElement;
   private gameOverEl!: HTMLElement;
   private onExitCallback: () => void;
+  private onScreenshotCallback?: () => void;
 
   private joystickActive = false;
   private joystickTouchId: number | null = null;
@@ -32,8 +33,9 @@ export class HUDOverlay3D {
   private joystickThumbEl!: HTMLElement;
   private joystickBaseEl!: HTMLElement;
 
-  constructor(onExit: () => void) {
+  constructor(onExit: () => void, onScreenshot?: () => void) {
     this.onExitCallback = onExit;
+    this.onScreenshotCallback = onScreenshot;
     this.container = document.createElement('div');
     this.container.id = 'hud-overlay-3d';
     this.container.style.cssText = `
@@ -45,7 +47,7 @@ export class HUDOverlay3D {
       pointer-events: none;
       z-index: 50;
       overflow: hidden;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
 
     this.buildTopBar();
@@ -61,82 +63,109 @@ export class HUDOverlay3D {
     const topBar = document.createElement('div');
     topBar.style.cssText = `
       position: absolute;
-      top: 12px;
-      left: 16px;
-      right: 16px;
+      top: 10px;
+      right: 14px;
       display: flex;
-      justify-content: space-between;
+      gap: 10px;
       align-items: center;
       pointer-events: auto;
     `;
-
-    // Left: Exit Button
-    const exitBtn = document.createElement('button');
-    exitBtn.innerHTML = '🚪 Thoát';
-    exitBtn.style.cssText = `
-      background: rgba(30, 41, 59, 0.85);
-      border: 1px solid #475569;
-      color: #f8fafc;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      backdrop-filter: blur(6px);
-    `;
-    exitBtn.onclick = () => this.onExitCallback();
-    topBar.appendChild(exitBtn);
 
     // Center: Score & Combo
     this.scoreEl = document.createElement('div');
     this.scoreEl.style.cssText = `
       background: rgba(15, 23, 42, 0.88);
       border: 2px solid #fbbf24;
-      border-radius: 20px;
-      padding: 6px 20px;
+      border-radius: 16px;
+      padding: 6px 16px;
       color: #fbbf24;
       font-weight: 900;
-      font-size: 22px;
-      letter-spacing: 1px;
-      box-shadow: 0 4px 15px rgba(251, 191, 36, 0.25);
+      font-size: 18px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px rgba(251, 191, 36, 0.25);
       text-align: center;
       backdrop-filter: blur(6px);
+      white-space: nowrap;
     `;
     this.scoreEl.innerText = 'ĐIỂM: 0 (x1)';
     topBar.appendChild(this.scoreEl);
 
-    // Right: Match Timer
+    // Match Timer
     this.timerEl = document.createElement('div');
     this.timerEl.style.cssText = `
       background: rgba(15, 23, 42, 0.88);
       border: 2px solid #38bdf8;
-      border-radius: 20px;
-      padding: 6px 16px;
+      border-radius: 16px;
+      padding: 6px 14px;
       color: #38bdf8;
       font-weight: 900;
-      font-size: 20px;
-      letter-spacing: 1px;
-      box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
+      font-size: 18px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
       backdrop-filter: blur(6px);
-      margin-right: 120px;
+      white-space: nowrap;
     `;
     this.timerEl.innerText = '⏱ 03:00';
     topBar.appendChild(this.timerEl);
 
+    // Screenshot Button
+    if (this.onScreenshotCallback) {
+      const snapBtn = document.createElement('button');
+      snapBtn.innerHTML = '📸 Chụp ảnh';
+      snapBtn.title = 'Phím tắt [P] để chụp ảnh màn hình';
+      snapBtn.style.cssText = `
+        background: rgba(30, 41, 59, 0.85);
+        border: 1px solid #38bdf8;
+        color: #38bdf8;
+        padding: 7px 12px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+        transition: transform 0.1s;
+      `;
+      snapBtn.onclick = () => this.onScreenshotCallback && this.onScreenshotCallback();
+      topBar.appendChild(snapBtn);
+    }
+
+    // Exit Button
+    const exitBtn = document.createElement('button');
+    exitBtn.innerHTML = '🚪 Thoát';
+    exitBtn.style.cssText = `
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid #475569;
+      color: #f8fafc;
+      padding: 7px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      transition: background 0.15s;
+    `;
+    exitBtn.onclick = () => this.onExitCallback();
+    topBar.appendChild(exitBtn);
+
     this.container.appendChild(topBar);
   }
 
+  /**
+   * Overcooked 2 Horizontal Order Ticker Bar
+   * Positioned along top-left without occluding kitchen gameplay!
+   */
   private buildOrdersList() {
     this.ordersContainer = document.createElement('div');
     this.ordersContainer.style.cssText = `
       position: absolute;
-      top: 68px;
-      left: 16px;
+      top: 10px;
+      left: 14px;
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-width: 320px;
+      flex-direction: row;
+      gap: 10px;
       pointer-events: none;
+      max-width: calc(100vw - 360px);
+      overflow-x: auto;
     `;
     this.container.appendChild(this.ordersContainer);
   }
@@ -147,54 +176,58 @@ export class HUDOverlay3D {
     orders.forEach(order => {
       const card = document.createElement('div');
       card.style.cssText = `
-        background: rgba(15, 23, 42, 0.9);
+        background: rgba(15, 23, 42, 0.92);
         border: 2px solid #3b82f6;
         border-radius: 12px;
-        padding: 8px 12px;
+        padding: 6px 10px;
+        min-width: 130px;
         backdrop-filter: blur(8px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
       `;
 
-      // Title & Reward Points
+      // Header: Recipe Name & Points
       const header = document.createElement('div');
       header.style.cssText = `
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 6px;
+        gap: 6px;
+        margin-bottom: 4px;
       `;
       header.innerHTML = `
-        <span style="font-weight: bold; font-size: 13px; color: #ffffff;">${order.name}</span>
-        <span style="font-weight: 800; font-size: 13px; color: #fbbf24;">+${order.rewardPoints}đ</span>
+        <span style="font-weight: 800; font-size: 12px; color: #ffffff; white-space: nowrap;">${order.name}</span>
+        <span style="font-weight: 900; font-size: 12px; color: #fbbf24;">+${order.rewardPoints}đ</span>
       `;
       card.appendChild(header);
 
-      // Ingredient chips
+      // Ingredient Chips (Compact mini badges)
       const chips = document.createElement('div');
-      chips.style.cssText = 'display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;';
+      chips.style.cssText = 'display: flex; gap: 4px; flex-wrap: nowrap; margin-bottom: 5px;';
       order.requiredIngredients.forEach(ing => {
         const chip = document.createElement('span');
         chip.style.cssText = `
           background: #1e293b;
           border: 1px solid #475569;
           border-radius: 6px;
-          padding: 2px 6px;
+          padding: 2px 4px;
           font-size: 11px;
-          font-weight: 600;
-          color: #94a3b8;
+          line-height: 1;
         `;
-        chip.innerText = this.getIngredientLabel(ing);
+        chip.innerText = this.getIngredientEmoji(ing);
         chips.appendChild(chip);
       });
       card.appendChild(chips);
 
-      // Remaining Time Progress Bar
+      // Countdown Progress Bar
       const progressBg = document.createElement('div');
       progressBg.style.cssText = `
         width: 100%;
-        height: 5px;
+        height: 4px;
         background: #334155;
-        border-radius: 3px;
+        border-radius: 2px;
         overflow: hidden;
       `;
       const ratio = Math.max(0, Math.min(1, order.remainingTime / order.maxTime));
@@ -213,14 +246,14 @@ export class HUDOverlay3D {
     });
   }
 
-  private getIngredientLabel(type: IngredientType): string {
+  private getIngredientEmoji(type: IngredientType): string {
     switch (type) {
-      case IngredientType.BREAD: return '🥖 Bánh mì';
-      case IngredientType.COOKED_PATTY: return '🥩 Thịt nướng';
-      case IngredientType.CHOPPED_LETTUCE: return '🥬 Xà lách';
-      case IngredientType.SLICED_TOMATO: return '🍅 Cà chua';
-      case IngredientType.SLICED_CHEESE: return '🧀 Phô mai';
-      default: return type;
+      case IngredientType.BREAD: return '🍞';
+      case IngredientType.COOKED_PATTY: return '🥩';
+      case IngredientType.CHOPPED_LETTUCE: return '🥬';
+      case IngredientType.SLICED_TOMATO: return '🍅';
+      case IngredientType.SLICED_CHEESE: return '🧀';
+      default: return '🍴';
     }
   }
 
@@ -242,8 +275,8 @@ export class HUDOverlay3D {
       position: absolute;
       bottom: 0;
       left: 0;
-      width: 45vw;
-      height: 60vh;
+      width: 40vw;
+      height: 50vh;
       pointer-events: auto;
       touch-action: none;
     `;
@@ -251,8 +284,8 @@ export class HUDOverlay3D {
     this.joystickBaseEl = document.createElement('div');
     this.joystickBaseEl.style.cssText = `
       position: absolute;
-      width: 110px;
-      height: 110px;
+      width: 100px;
+      height: 100px;
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.15);
       border: 3px solid rgba(255, 255, 255, 0.35);
@@ -264,8 +297,8 @@ export class HUDOverlay3D {
     this.joystickThumbEl = document.createElement('div');
     this.joystickThumbEl.style.cssText = `
       position: absolute;
-      width: 50px;
-      height: 50px;
+      width: 46px;
+      height: 46px;
       border-radius: 50%;
       background: #38bdf8;
       border: 2px solid #ffffff;
@@ -285,8 +318,8 @@ export class HUDOverlay3D {
         this.joystickCenter = { x: t.clientX, y: t.clientY };
         this.joystickBaseEl.style.left = `${t.clientX}px`;
         this.joystickBaseEl.style.top = `${t.clientY}px`;
-        this.joystickThumbEl.style.left = '55px';
-        this.joystickThumbEl.style.top = '55px';
+        this.joystickThumbEl.style.left = '50px';
+        this.joystickThumbEl.style.top = '50px';
         this.joystickBaseEl.style.display = 'block';
       }
     }, { passive: false });
@@ -299,15 +332,15 @@ export class HUDOverlay3D {
           const dx = t.clientX - this.joystickCenter.x;
           const dy = t.clientY - this.joystickCenter.y;
           const dist = Math.hypot(dx, dy);
-          const maxR = 50;
+          const maxR = 45;
           let clampedX = dx;
           let clampedY = dy;
           if (dist > maxR) {
             clampedX = (dx / dist) * maxR;
             clampedY = (dy / dist) * maxR;
           }
-          this.joystickThumbEl.style.left = `${55 + clampedX}px`;
-          this.joystickThumbEl.style.top = `${55 + clampedY}px`;
+          this.joystickThumbEl.style.left = `${50 + clampedX}px`;
+          this.joystickThumbEl.style.top = `${50 + clampedY}px`;
           this.inputs.moveX = clampedX / maxR;
           this.inputs.moveZ = clampedY / maxR;
         }
@@ -330,32 +363,32 @@ export class HUDOverlay3D {
 
     this.container.appendChild(joyZone);
 
-    // 2. TOUCH ACTION BUTTONS (Right screen bottom)
+    // 2. TOUCH ACTION BUTTONS (Right screen bottom safe area)
     const btnContainer = document.createElement('div');
     btnContainer.style.cssText = `
       position: absolute;
-      bottom: 24px;
-      right: 24px;
+      bottom: 20px;
+      right: 20px;
       display: flex;
-      gap: 16px;
+      gap: 14px;
       align-items: flex-end;
       pointer-events: auto;
     `;
 
     // Pickup / Drop (Green)
-    const pickupBtn = this.createTouchButton('CẦM<br>THẢ', '#10b981', '#059669', 75, () => {
+    const pickupBtn = this.createTouchButton('CẦM<br>THẢ', '#10b981', '#059669', 72, () => {
       this.inputs.isPickupJustPressed = true;
     });
 
     // Action / Chop (Orange)
-    const actionBtn = this.createTouchButton('CẮT<br>NẤU', '#f97316', '#ea580c', 85, () => {
+    const actionBtn = this.createTouchButton('CẮT<br>NẤU', '#f97316', '#ea580c', 80, () => {
       this.inputs.isActionJustPressed = true;
     }, (pressed) => {
       this.inputs.isActionPressed = pressed;
     });
 
     // Throw (Purple)
-    const throwBtn = this.createTouchButton('NÉM', '#8b5cf6', '#7c3aed', 65, () => {
+    const throwBtn = this.createTouchButton('NÉM', '#8b5cf6', '#7c3aed', 62, () => {
       this.inputs.isThrowJustPressed = true;
     });
 
@@ -383,11 +416,11 @@ export class HUDOverlay3D {
       border: 3px solid #ffffff;
       color: #ffffff;
       font-weight: 900;
-      font-size: ${size < 70 ? '12px' : '14px'};
+      font-size: ${size < 70 ? '11px' : '13px'};
       line-height: 1.2;
       text-align: center;
       cursor: pointer;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
       user-select: none;
       -webkit-user-select: none;
       touch-action: manipulation;
@@ -422,20 +455,21 @@ export class HUDOverlay3D {
     const hint = document.createElement('div');
     hint.style.cssText = `
       position: absolute;
-      bottom: 12px;
+      bottom: 8px;
       left: 50%;
       transform: translateX(-50%);
       background: rgba(15, 23, 42, 0.75);
       border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 6px 16px;
+      border-radius: 10px;
+      padding: 4px 14px;
       color: #94a3b8;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
       pointer-events: none;
       backdrop-filter: blur(4px);
+      white-space: nowrap;
     `;
-    hint.innerHTML = '⌨ <b>[WASD]</b> Di chuyển &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném';
+    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném';
     this.container.appendChild(hint);
   }
 
