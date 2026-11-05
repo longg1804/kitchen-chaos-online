@@ -6,21 +6,21 @@ export class MobileControls {
   private joystickThumb?: Phaser.GameObjects.Arc;
   private joystickPointerId: number | null = null;
   private joystickCenter = { x: 0, y: 0 };
-  private maxRadius = 50;
+  private maxRadius = 55;
 
   public moveVector = { x: 0, y: 0 };
   public isActionPressed = false;
   public isActionJustPressed = false;
   public isPickupJustPressed = false;
+  public isThrowJustPressed = false;
 
   private actionBtn?: Phaser.GameObjects.Container;
   private pickupBtn?: Phaser.GameObjects.Container;
+  private throwBtn?: Phaser.GameObjects.Container;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.createControls();
-
-    // Resize handler
     this.scene.scale.on('resize', this.onResize, this);
   }
 
@@ -28,8 +28,8 @@ export class MobileControls {
     const { width, height } = this.scene.scale;
 
     // 1. VIRTUAL JOYSTICK BASE & THUMB (Bottom Left)
-    const joyX = Math.max(80, width * 0.15);
-    const joyY = height - Math.max(80, height * 0.2);
+    const joyX = Math.max(90, width * 0.12);
+    const joyY = height - Math.max(90, height * 0.22);
     this.joystickCenter = { x: joyX, y: joyY };
 
     this.joystickBase = this.scene.add.circle(joyX, joyY, this.maxRadius, 0xffffff, 0.2)
@@ -37,14 +37,13 @@ export class MobileControls {
       .setScrollFactor(0)
       .setDepth(1000);
 
-    this.joystickThumb = this.scene.add.circle(joyX, joyY, 25, 0x38bdf8, 0.7)
+    this.joystickThumb = this.scene.add.circle(joyX, joyY, 28, 0x38bdf8, 0.75)
       .setStrokeStyle(2, 0xffffff, 0.9)
       .setScrollFactor(0)
       .setDepth(1001);
 
     // Joystick Touch Listeners
     this.scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // If pointer is on the left half of the screen
       if (pointer.x < this.scene.scale.width * 0.45 && this.joystickPointerId === null) {
         this.joystickPointerId = pointer.id;
         this.joystickCenter = { x: pointer.x, y: pointer.y };
@@ -90,16 +89,16 @@ export class MobileControls {
   }
 
   private createActionButtons(width: number, height: number) {
-    // Button 1: ACTION / CHOP / INTERACT (Orange circle)
-    const actX = width - Math.max(70, width * 0.12);
-    const actY = height - Math.max(130, height * 0.32);
+    // Button 1: ACTION / CHOP / INTERACT (Orange)
+    const actX = width - Math.max(90, width * 0.1);
+    const actY = height - Math.max(160, height * 0.32);
 
     this.actionBtn = this.scene.add.container(actX, actY).setScrollFactor(0).setDepth(1000);
-    const actCircle = this.scene.add.circle(0, 0, 36, 0xf97316, 0.85)
+    const actCircle = this.scene.add.circle(0, 0, 42, 0xf97316, 0.85)
       .setStrokeStyle(3, 0xffedd5, 1)
       .setInteractive();
     const actText = this.scene.add.text(0, 0, 'CẮT\nNẤU', {
-      font: 'bold 13px Arial',
+      font: 'bold 14px Arial',
       align: 'center',
       color: '#ffffff'
     }).setOrigin(0.5);
@@ -120,16 +119,16 @@ export class MobileControls {
       actCircle.setScale(1.0);
     });
 
-    // Button 2: PICK UP / DROP (Green circle)
-    const pickX = width - Math.max(130, width * 0.22);
-    const pickY = height - Math.max(70, height * 0.18);
+    // Button 2: PICK UP / DROP (Green)
+    const pickX = width - Math.max(180, width * 0.22);
+    const pickY = height - Math.max(90, height * 0.18);
 
     this.pickupBtn = this.scene.add.container(pickX, pickY).setScrollFactor(0).setDepth(1000);
-    const pickCircle = this.scene.add.circle(0, 0, 36, 0x10b981, 0.85)
+    const pickCircle = this.scene.add.circle(0, 0, 42, 0x10b981, 0.85)
       .setStrokeStyle(3, 0xd1fae5, 1)
       .setInteractive();
     const pickText = this.scene.add.text(0, 0, 'CẦM\nTHẢ', {
-      font: 'bold 13px Arial',
+      font: 'bold 14px Arial',
       align: 'center',
       color: '#ffffff'
     }).setOrigin(0.5);
@@ -140,44 +139,65 @@ export class MobileControls {
       pickCircle.setScale(0.9);
       this.triggerHaptic();
     });
-    pickCircle.on('pointerup', () => {
-      pickCircle.setScale(1.0);
+    pickCircle.on('pointerup', () => pickCircle.setScale(1.0));
+    pickCircle.on('pointerout', () => pickCircle.setScale(1.0));
+
+    // Button 3: THROW (Purple)
+    const throwX = width - Math.max(80, width * 0.1);
+    const throwY = height - Math.max(70, height * 0.14);
+
+    this.throwBtn = this.scene.add.container(throwX, throwY).setScrollFactor(0).setDepth(1000);
+    const throwCircle = this.scene.add.circle(0, 0, 36, 0x8b5cf6, 0.85)
+      .setStrokeStyle(3, 0xede9fe, 1)
+      .setInteractive();
+    const throwText = this.scene.add.text(0, 0, 'NÉM', {
+      font: 'bold 13px Arial',
+      align: 'center',
+      color: '#ffffff'
+    }).setOrigin(0.5);
+    this.throwBtn.add([throwCircle, throwText]);
+
+    throwCircle.on('pointerdown', () => {
+      this.isThrowJustPressed = true;
+      throwCircle.setScale(0.9);
+      this.triggerHaptic();
     });
-    pickCircle.on('pointerout', () => {
-      pickCircle.setScale(1.0);
-    });
+    throwCircle.on('pointerup', () => throwCircle.setScale(1.0));
+    throwCircle.on('pointerout', () => throwCircle.setScale(1.0));
   }
 
   private triggerHaptic() {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate(20);
-      } catch (e) {
-        // Ignore if not allowed
-      }
+      } catch (e) {}
     }
   }
 
   private onResize(gameSize: Phaser.Structs.Size) {
     const { width, height } = gameSize;
-    const joyX = Math.max(80, width * 0.15);
-    const joyY = height - Math.max(80, height * 0.2);
+    const joyX = Math.max(90, width * 0.12);
+    const joyY = height - Math.max(90, height * 0.22);
     this.joystickCenter = { x: joyX, y: joyY };
     this.joystickBase?.setPosition(joyX, joyY);
     this.joystickThumb?.setPosition(joyX, joyY);
 
-    const actX = width - Math.max(70, width * 0.12);
-    const actY = height - Math.max(130, height * 0.32);
+    const actX = width - Math.max(90, width * 0.1);
+    const actY = height - Math.max(160, height * 0.32);
     this.actionBtn?.setPosition(actX, actY);
 
-    const pickX = width - Math.max(130, width * 0.22);
-    const pickY = height - Math.max(70, height * 0.18);
+    const pickX = width - Math.max(180, width * 0.22);
+    const pickY = height - Math.max(90, height * 0.18);
     this.pickupBtn?.setPosition(pickX, pickY);
+
+    const throwX = width - Math.max(80, width * 0.1);
+    const throwY = height - Math.max(70, height * 0.14);
+    this.throwBtn?.setPosition(throwX, throwY);
   }
 
   public postUpdate() {
-    // Reset one-frame flags
     this.isActionJustPressed = false;
     this.isPickupJustPressed = false;
+    this.isThrowJustPressed = false;
   }
 }

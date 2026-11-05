@@ -7,13 +7,14 @@ export enum IngredientType {
   CHOPPED_LETTUCE = 'chopped_lettuce',
   TOMATO = 'tomato',
   SLICED_TOMATO = 'sliced_tomato',
+  CHEESE = 'cheese',
+  SLICED_CHEESE = 'sliced_cheese',
   PLATE = 'plate'
 }
 
 export interface KitchenItem {
   id: string;
   type: IngredientType;
-  // If it's a plate, it can carry multiple ingredients!
   plateContents?: IngredientType[];
 }
 
@@ -23,11 +24,14 @@ export enum CounterType {
   CRATE_MEAT = 'crate_meat',     // Thùng thịt sống
   CRATE_LETTUCE = 'crate_lettuce', // Thùng xà lách
   CRATE_TOMATO = 'crate_tomato', // Thùng cà chua
+  CRATE_CHEESE = 'crate_cheese', // Thùng phô mai
   CRATE_PLATE = 'crate_plate',   // Giá để đĩa
   CUTTING_BOARD = 'cutting_board', // Thớt cắt
   STOVE = 'stove',               // Bếp nướng chảo
   DELIVERY = 'delivery',         // Bàn phục vụ món
-  TRASH = 'trash'                // Thùng rác
+  TRASH = 'trash',               // Thùng rác
+  CONVEYOR_LEFT = 'conveyor_left',   // Băng chuyền trôi sang trái
+  CONVEYOR_RIGHT = 'conveyor_right'  // Băng chuyền trôi sang phải
 }
 
 export enum StoveState {
@@ -54,4 +58,18 @@ export interface PlayerInput {
   actionJustPressed: boolean;
   actionHeld: boolean;
   pickupDropJustPressed: boolean;
+  throwJustPressed: boolean;
+}
+
+export enum ChefSkin {
+  CLASSIC = 'chef_classic',
+  PANDA = 'chef_panda',
+  FOX = 'chef_fox',
+  ROBOT = 'chef_robot'
+}
+
+export enum KitchenMapId {
+  TRADITIONAL = 'traditional',
+  CONVEYOR = 'conveyor',
+  SPLIT_KITCHEN = 'split_kitchen'
 }

@@ -4,28 +4,37 @@ export class RecipeManager {
   private activeOrders: OrderRecipe[] = [];
   private maxConcurrentOrders = 3;
   private orderCounter = 0;
-  private spawnInterval = 15; // seconds
+  private spawnInterval = 14;
   private timeSinceLastSpawn = 0;
 
   public score = 0;
   public combo = 1;
 
-  // Recipe Catalog
-  public static RECIPES: { [key: string]: { name: string; ingredients: IngredientType[]; points: number } } = {
+  // Expanded Recipe Catalog (Phase 3)
+  public static RECIPES: { [key: string]: { name: string; ingredients: IngredientType[]; points: number; icon: string } } = {
     BURGER_COMPLETE: {
       name: 'Burger Đầy Đủ',
       ingredients: [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO],
-      points: 100
+      points: 100,
+      icon: 'item_burger'
     },
-    BURGER_CHEESE_MEAT: {
-      name: 'Burger Thịt & Xà Lách',
-      ingredients: [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.CHOPPED_LETTUCE],
-      points: 70
+    BURGER_CHEESE: {
+      name: 'Burger Phô Mai',
+      ingredients: [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.SLICED_CHEESE],
+      points: 80,
+      icon: 'item_burger'
     },
-    BURGER_MEAT_TOMATO: {
-      name: 'Burger Thịt & Cà Chua',
-      ingredients: [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.SLICED_TOMATO],
-      points: 70
+    SUPER_BURGER: {
+      name: 'Burger Siêu Cấp',
+      ingredients: [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.SLICED_CHEESE, IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO],
+      points: 140,
+      icon: 'item_burger'
+    },
+    FRESH_SALAD: {
+      name: 'Salad Tươi Mát',
+      ingredients: [IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO],
+      points: 60,
+      icon: 'item_salad'
     }
   };
 
@@ -38,13 +47,11 @@ export class RecipeManager {
     let expired = false;
     let scoreDelta = 0;
 
-    // Update remaining time on each active order
     for (let i = this.activeOrders.length - 1; i >= 0; i--) {
       const order = this.activeOrders[i];
       order.remainingTime -= deltaSeconds;
 
       if (order.remainingTime <= 0) {
-        // Expired order! Penalty
         this.activeOrders.splice(i, 1);
         this.combo = 1;
         scoreDelta -= 30;
@@ -53,7 +60,6 @@ export class RecipeManager {
       }
     }
 
-    // Spawn new orders if below max
     this.timeSinceLastSpawn += deltaSeconds;
     if (this.activeOrders.length < this.maxConcurrentOrders && this.timeSinceLastSpawn >= this.spawnInterval) {
       this.spawnOrder();
@@ -75,10 +81,10 @@ export class RecipeManager {
       id: `order_${this.orderCounter}`,
       name: template.name,
       requiredIngredients: [...template.ingredients],
-      maxTime: 60, // 60s per order
-      remainingTime: 60,
+      maxTime: 65,
+      remainingTime: 65,
       rewardPoints: template.points,
-      iconTexture: 'item_burger'
+      iconTexture: template.icon
     };
 
     this.activeOrders.push(order);
@@ -88,7 +94,6 @@ export class RecipeManager {
     return this.activeOrders;
   }
 
-  // Check if plate content satisfies any active order
   public tryDeliver(plateItem: KitchenItem): { success: boolean; pointsEarned: number } {
     if (plateItem.type !== IngredientType.PLATE || !plateItem.plateContents) {
       return { success: false, pointsEarned: 0 };
@@ -100,15 +105,13 @@ export class RecipeManager {
       const order = this.activeOrders[i];
       const required = [...order.requiredIngredients].sort();
 
-      // Compare contents
       if (contents.length === required.length && contents.every((val, index) => val === required[index])) {
-        // Matched!
         const earned = order.rewardPoints * this.combo;
         this.score += earned;
-        this.combo = Math.min(4, this.combo + 1); // Max 4x combo!
+        this.combo = Math.min(4, this.combo + 1);
 
         this.activeOrders.splice(i, 1);
-        this.spawnOrder(); // Queue a new order
+        this.spawnOrder();
 
         return { success: true, pointsEarned: earned };
       }

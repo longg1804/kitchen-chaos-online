@@ -17,14 +17,14 @@ export class KitchenCounter {
   public progressBarFill?: Phaser.GameObjects.Rectangle;
 
   // Cutting logic
-  public cutProgress = 0; // 0 to 1
-  public readonly cutRequiredTime = 2.5; // seconds
+  public cutProgress = 0;
+  public readonly cutRequiredTime = 2.2;
 
   // Stove logic
   public stoveState: StoveState = StoveState.IDLE;
   public cookingTimer = 0;
-  public readonly cookTime = 6.0;   // 6s to cook
-  public readonly burnTime = 12.0;  // 12s total (6s after cooked) before burn
+  public readonly cookTime = 5.5;
+  public readonly burnTime = 11.0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: CounterType, id?: string) {
     this.scene = scene;
@@ -33,7 +33,6 @@ export class KitchenCounter {
     this.type = type;
     this.id = id || `counter_${x}_${y}`;
 
-    // Sprite texture based on type
     let texture = 'counter_clear';
     switch (type) {
       case CounterType.CLEAR: texture = 'counter_clear'; break;
@@ -45,7 +44,10 @@ export class KitchenCounter {
       case CounterType.CRATE_MEAT: texture = 'counter_crate_meat'; break;
       case CounterType.CRATE_LETTUCE: texture = 'counter_crate_lettuce'; break;
       case CounterType.CRATE_TOMATO: texture = 'counter_crate_tomato'; break;
+      case CounterType.CRATE_CHEESE: texture = 'counter_crate_cheese'; break;
       case CounterType.CRATE_PLATE: texture = 'counter_crate_plate'; break;
+      case CounterType.CONVEYOR_LEFT: texture = 'counter_conveyor_left'; break;
+      case CounterType.CONVEYOR_RIGHT: texture = 'counter_conveyor_right'; break;
     }
 
     this.sprite = scene.add.sprite(x, y, texture).setDepth(10);
@@ -53,26 +55,25 @@ export class KitchenCounter {
   }
 
   private createProgressBars() {
-    this.progressBarBg = this.scene.add.rectangle(this.x, this.y - 28, 44, 8, 0x1f2937)
+    this.progressBarBg = this.scene.add.rectangle(this.x, this.y - 30, 44, 8, 0x1f2937)
       .setStrokeStyle(1, 0xffffff)
       .setDepth(25)
       .setVisible(false);
 
-    this.progressBarFill = this.scene.add.rectangle(this.x - 21, this.y - 28, 0, 6, 0x10b981)
+    this.progressBarFill = this.scene.add.rectangle(this.x - 21, this.y - 30, 0, 6, 0x10b981)
       .setOrigin(0, 0.5)
       .setDepth(26)
       .setVisible(false);
   }
 
   public update(deltaSeconds: number) {
-    // 1. STOVE SIMULATION
+    // 1. Stove Simulation
     if (this.type === CounterType.STOVE && this.currentItem) {
       if (this.currentItem.type === IngredientType.RAW_MEAT) {
         this.cookingTimer += deltaSeconds;
-        this.showProgressBar(this.cookingTimer / this.cookTime, 0xf59e0b); // Orange cooking
+        this.showProgressBar(this.cookingTimer / this.cookTime, 0xf59e0b);
 
         if (this.cookingTimer >= this.cookTime) {
-          // Meat is cooked!
           this.currentItem.type = IngredientType.COOKED_PATTY;
           this.stoveState = StoveState.COOKED;
           this.updateItemVisual();
@@ -80,15 +81,13 @@ export class KitchenCounter {
       } else if (this.currentItem.type === IngredientType.COOKED_PATTY) {
         this.cookingTimer += deltaSeconds;
         const burnRatio = (this.cookingTimer - this.cookTime) / (this.burnTime - this.cookTime);
-        this.showProgressBar(burnRatio, 0xef4444); // Red warning!
+        this.showProgressBar(burnRatio, 0xef4444);
 
-        // Burning warning beep
         if (burnRatio > 0.6 && Math.floor(this.cookingTimer * 4) % 2 === 0) {
           SoundManager.getInstance().playWarning();
         }
 
         if (this.cookingTimer >= this.burnTime) {
-          // Patty is burnt!
           this.currentItem.type = IngredientType.BURNT_PATTY;
           this.stoveState = StoveState.BURNT;
           this.hideProgressBar();
@@ -101,25 +100,24 @@ export class KitchenCounter {
     }
   }
 
-  // Handle cutting board progress when player presses Action
+  // Cutting Action (Lettuce, Tomato, Cheese)
   public cutAction(deltaSeconds: number): boolean {
     if (this.type !== CounterType.CUTTING_BOARD || !this.currentItem) return false;
 
-    // Can only cut Lettuce or Tomato
-    if (this.currentItem.type !== IngredientType.LETTUCE && this.currentItem.type !== IngredientType.TOMATO) {
-      return false;
-    }
+    const canCut = [IngredientType.LETTUCE, IngredientType.TOMATO, IngredientType.CHEESE];
+    if (!canCut.includes(this.currentItem.type)) return false;
 
     this.cutProgress += deltaSeconds / this.cutRequiredTime;
     this.showProgressBar(this.cutProgress, 0x3b82f6);
     SoundManager.getInstance().playChop();
 
     if (this.cutProgress >= 1.0) {
-      // Finished cutting!
       if (this.currentItem.type === IngredientType.LETTUCE) {
         this.currentItem.type = IngredientType.CHOPPED_LETTUCE;
       } else if (this.currentItem.type === IngredientType.TOMATO) {
         this.currentItem.type = IngredientType.SLICED_TOMATO;
+      } else if (this.currentItem.type === IngredientType.CHEESE) {
+        this.currentItem.type = IngredientType.SLICED_CHEESE;
       }
       this.cutProgress = 0;
       this.hideProgressBar();
@@ -143,76 +141,55 @@ export class KitchenCounter {
     this.progressBarFill?.setVisible(false);
   }
 
-  // Put an item on counter or combine onto plate
   public placeItem(item: KitchenItem): KitchenItem | null {
-    // If empty counter
     if (!this.currentItem) {
       this.currentItem = item;
       this.updateItemVisual();
-      return null; // Successfully placed, player now holds nothing
+      return null;
     }
 
-    // Plate combination: If counter has a Plate, and incoming item is an ingredient
-    if (this.currentItem.type === IngredientType.PLATE && this.currentItem.plateContents) {
-      const allowedIngredients = [
-        IngredientType.BREAD,
-        IngredientType.COOKED_PATTY,
-        IngredientType.CHOPPED_LETTUCE,
-        IngredientType.SLICED_TOMATO
-      ];
+    const allowedIngredients = [
+      IngredientType.BREAD,
+      IngredientType.COOKED_PATTY,
+      IngredientType.CHOPPED_LETTUCE,
+      IngredientType.SLICED_TOMATO,
+      IngredientType.SLICED_CHEESE
+    ];
 
+    // Counter has Plate, incoming is ingredient
+    if (this.currentItem.type === IngredientType.PLATE && this.currentItem.plateContents) {
       if (allowedIngredients.includes(item.type)) {
-        // Check if not already added
         if (!this.currentItem.plateContents.includes(item.type)) {
           this.currentItem.plateContents.push(item.type);
           this.updateItemVisual();
-          return null; // Consumed ingredient onto plate!
+          return null;
         }
       }
     }
 
-    // Plate combination reverse: If player holds a Plate, and counter has an ingredient
+    // Player holds Plate, counter has ingredient
     if (item.type === IngredientType.PLATE && item.plateContents) {
-      const allowedIngredients = [
-        IngredientType.BREAD,
-        IngredientType.COOKED_PATTY,
-        IngredientType.CHOPPED_LETTUCE,
-        IngredientType.SLICED_TOMATO
-      ];
-
       if (allowedIngredients.includes(this.currentItem.type)) {
         if (!item.plateContents.includes(this.currentItem.type)) {
           item.plateContents.push(this.currentItem.type);
           this.currentItem = null;
           this.updateItemVisual();
-          return item; // Plate now has the item
+          return item;
         }
       }
     }
 
-    return item; // Cannot place, return back to player
+    return item;
   }
 
-  // Pick item from this counter
   public pickItem(): KitchenItem | null {
-    // 1. Infinite Crates
-    if (this.type === CounterType.CRATE_BREAD) {
-      return { id: `bread_${Date.now()}`, type: IngredientType.BREAD };
-    }
-    if (this.type === CounterType.CRATE_MEAT) {
-      return { id: `meat_${Date.now()}`, type: IngredientType.RAW_MEAT };
-    }
-    if (this.type === CounterType.CRATE_LETTUCE) {
-      return { id: `lettuce_${Date.now()}`, type: IngredientType.LETTUCE };
-    }
-    if (this.type === CounterType.CRATE_TOMATO) {
-      return { id: `tomato_${Date.now()}`, type: IngredientType.TOMATO };
-    }
-    if (this.type === CounterType.CRATE_PLATE) {
-      return { id: `plate_${Date.now()}`, type: IngredientType.PLATE, plateContents: [] };
-    }
+    if (this.type === CounterType.CRATE_BREAD) return { id: `b_${Date.now()}`, type: IngredientType.BREAD };
+    if (this.type === CounterType.CRATE_MEAT) return { id: `m_${Date.now()}`, type: IngredientType.RAW_MEAT };
+    if (this.type === CounterType.CRATE_LETTUCE) return { id: `l_${Date.now()}`, type: IngredientType.LETTUCE };
+    if (this.type === CounterType.CRATE_TOMATO) return { id: `t_${Date.now()}`, type: IngredientType.TOMATO };
+    if (this.type === CounterType.CRATE_CHEESE) return { id: `c_${Date.now()}`, type: IngredientType.CHEESE };
+    if (this.type === CounterType.CRATE_PLATE) return { id: `p_${Date.now()}`, type: IngredientType.PLATE, plateContents: [] };
 
-    // 2. Regular counter with an item
     if (this.currentItem) {
       const item = this.currentItem;
       this.currentItem = null;
@@ -228,7 +205,6 @@ export class KitchenCounter {
   }
 
   public updateItemVisual() {
-    // Clear old plate sub-sprites
     this.plateSprites.forEach(s => s.destroy());
     this.plateSprites = [];
 
@@ -238,7 +214,6 @@ export class KitchenCounter {
       return;
     }
 
-    // Determine texture key
     let texKey = `item_${this.currentItem.type}`;
     if (!this.itemSprite) {
       this.itemSprite = this.scene.add.sprite(this.x, this.y - 4, texKey).setDepth(20);
@@ -247,17 +222,18 @@ export class KitchenCounter {
       this.itemSprite.setPosition(this.x, this.y - 4);
     }
 
-    // Render contents on plate
     if (this.currentItem.type === IngredientType.PLATE && this.currentItem.plateContents) {
-      // If complete burger
-      const hasAll = [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO]
-        .every(ing => this.currentItem!.plateContents!.includes(ing));
+      const contents = this.currentItem.plateContents;
 
-      if (hasAll) {
+      // Salad
+      if (contents.length === 2 && contents.includes(IngredientType.CHOPPED_LETTUCE) && contents.includes(IngredientType.SLICED_TOMATO)) {
+        this.itemSprite.setTexture('item_salad');
+      }
+      // Burger Complete
+      else if (contents.length >= 3 && contents.includes(IngredientType.BREAD) && contents.includes(IngredientType.COOKED_PATTY)) {
         this.itemSprite.setTexture('item_burger');
       } else {
-        // Render stacked icons on plate
-        this.currentItem.plateContents.forEach((ing, idx) => {
+        contents.forEach((ing, idx) => {
           const subSprite = this.scene.add.sprite(this.x, this.y - 6 - idx * 4, `item_${ing}`)
             .setScale(0.7)
             .setDepth(21 + idx);

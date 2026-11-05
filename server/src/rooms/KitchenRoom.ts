@@ -2,16 +2,16 @@ import { Room, Client } from 'colyseus';
 import { KitchenRoomState, PlayerState, CounterState, ItemState, OrderState } from '../schemas/KitchenState';
 import { ArraySchema } from '@colyseus/schema';
 
-// Chef Colors for 4 players
 const CHEF_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706'];
 
 export class KitchenRoom extends Room<KitchenRoomState> {
   maxClients = 4;
-  private spawnInterval = 15;
+  private spawnInterval = 14;
   private timeSinceSpawn = 0;
   private orderCounter = 0;
+  private currentMapId = 'traditional';
 
-  // Catalog
+  // Expanded Recipe Catalog (Phase 3)
   private recipes = [
     {
       key: 'BURGER_COMPLETE',
@@ -20,33 +20,45 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       points: 100
     },
     {
-      key: 'BURGER_MEAT_LETTUCE',
-      name: 'Burger Thịt & Xà Lách',
-      ingredients: ['bread', 'cooked_patty', 'chopped_lettuce'],
-      points: 70
+      key: 'BURGER_CHEESE',
+      name: 'Burger Phô Mai',
+      ingredients: ['bread', 'cooked_patty', 'sliced_cheese'],
+      points: 80
     },
     {
-      key: 'BURGER_MEAT_TOMATO',
-      name: 'Burger Thịt & Cà Chua',
-      ingredients: ['bread', 'cooked_patty', 'sliced_tomato'],
-      points: 70
+      key: 'SUPER_BURGER',
+      name: 'Burger Siêu Cấp',
+      ingredients: ['bread', 'cooked_patty', 'sliced_cheese', 'chopped_lettuce', 'sliced_tomato'],
+      points: 140
+    },
+    {
+      key: 'FRESH_SALAD',
+      name: 'Salad Tươi Mát',
+      ingredients: ['chopped_lettuce', 'sliced_tomato'],
+      points: 60
     }
   ];
 
   onCreate(options: any) {
     this.setState(new KitchenRoomState());
 
-    // Generate 6-digit numeric room code (pure numbers only)
     const roomCode = options.roomCode || this.generateNumericRoomCode();
     this.state.roomCode = roomCode;
     this.setMetadata({ roomCode });
 
     console.log(`[KitchenRoom] Room created with 6-digit Code: ${roomCode}`);
 
-    // Initialize kitchen map layout
     this.initKitchenMap();
 
-    // Register Message Handlers
+    // Map change from host
+    this.onMessage('change_map', (client, data: { mapId: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player && player.isHost) {
+        this.currentMapId = data.mapId;
+        this.broadcast('map_changed', { mapId: data.mapId });
+      }
+    });
+
     this.onMessage('set_ready', (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
@@ -63,21 +75,19 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         this.state.score = 0;
         this.state.combo = 1;
 
-        // Spawn initial orders
         this.spawnOrder();
         this.spawnOrder();
 
         const playersList = this.getPlayerListData();
 
-        // Broadcast start game with player list and room code
         this.broadcast('game_started', {
           roomCode: this.state.roomCode,
+          mapId: this.currentMapId,
           players: playersList
         });
       }
     });
 
-    // Instant real-time player movement broadcast
     this.onMessage('player_move', (client, data: { x: number; y: number; facingX: number; facingY: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
@@ -86,7 +96,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         player.facingX = data.facingX;
         player.facingY = data.facingY;
 
-        // Broadcast to other players in room
         this.broadcast('remote_player_move', {
           id: client.sessionId,
           name: player.name,
@@ -99,7 +108,18 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }
     });
 
-    // Cutting Action
+    // Throwing Mechanic Broadcast
+    this.onMessage('player_throw', (client, data: { item: any; startX: number; startY: number; targetX: number; targetY: number }) => {
+      this.broadcast('player_throw', {
+        id: client.sessionId,
+        item: data.item,
+        startX: data.startX,
+        startY: data.startY,
+        targetX: data.targetX,
+        targetY: data.targetY
+      }, { except: client });
+    });
+
     this.onMessage('player_action', (client, data: { counterId: string; delta: number }) => {
       const player = this.state.players.get(client.sessionId);
       const counter = this.state.counters.get(data.counterId);
@@ -107,14 +127,15 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       if (player && counter) {
         if (counter.type === 'cutting_board' && counter.item) {
           player.isChopping = true;
-          if (counter.item.type === 'lettuce' || counter.item.type === 'tomato') {
-            counter.cutProgress += data.delta / 2.5;
+          const canCut = ['lettuce', 'tomato', 'cheese'];
+          if (canCut.includes(counter.item.type)) {
+            counter.cutProgress += data.delta / 2.2;
             if (counter.cutProgress >= 1.0) {
               counter.cutProgress = 0;
               if (counter.item.type === 'lettuce') counter.item.type = 'chopped_lettuce';
               else if (counter.item.type === 'tomato') counter.item.type = 'sliced_tomato';
+              else if (counter.item.type === 'cheese') counter.item.type = 'sliced_cheese';
             }
-            // Broadcast cutting update
             this.broadcast('counter_update', {
               id: counter.id,
               type: counter.type,
@@ -130,22 +151,16 @@ export class KitchenRoom extends Room<KitchenRoomState> {
 
     this.onMessage('stop_action', (client) => {
       const player = this.state.players.get(client.sessionId);
-      if (player) {
-        player.isChopping = false;
-      }
+      if (player) player.isChopping = false;
     });
 
-    // Interact (Pick / Drop / Combine / Trash / Delivery)
     this.onMessage('player_interact', (client, data: { counterId: string; localHeldItem?: any }) => {
       const player = this.state.players.get(client.sessionId);
       const counter = this.state.counters.get(data.counterId);
-
       if (!player || !counter) return;
-
       this.handlePlayerInteract(player, counter, client, data.localHeldItem);
     });
 
-    // 20Hz Simulation loop (every 50ms)
     this.setSimulationInterval((deltaTime) => this.update(deltaTime / 1000));
   }
 
@@ -180,7 +195,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
   }
 
   private handlePlayerInteract(player: PlayerState, counter: CounterState, client: Client, clientItem?: any) {
-    // 1. TRASH CAN
     if (counter.type === 'trash') {
       player.heldItem = null;
       this.broadcast('play_sound', { sound: 'trash' });
@@ -188,7 +202,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       return;
     }
 
-    // 2. DELIVERY
     if (counter.type === 'delivery') {
       if (player.heldItem && player.heldItem.type === 'plate') {
         const result = this.tryDeliver(player.heldItem);
@@ -211,7 +224,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       return;
     }
 
-    // 3. CRATES
     if (counter.type.startsWith('crate_')) {
       if (!player.heldItem) {
         const item = new ItemState();
@@ -219,6 +231,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         else if (counter.type === 'crate_meat') item.type = 'raw_meat';
         else if (counter.type === 'crate_lettuce') item.type = 'lettuce';
         else if (counter.type === 'crate_tomato') item.type = 'tomato';
+        else if (counter.type === 'crate_cheese') item.type = 'cheese';
         else if (counter.type === 'crate_plate') {
           item.type = 'plate';
           item.plateContents = new ArraySchema<string>();
@@ -233,14 +246,13 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       return;
     }
 
-    // 4. REGULAR COUNTERS / STOVE / CUTTING BOARD
     if (player.heldItem) {
       if (!counter.item) {
         counter.item = player.heldItem;
         player.heldItem = null;
         this.broadcast('play_sound', { sound: 'drop' });
       } else {
-        const allowed = ['bread', 'cooked_patty', 'chopped_lettuce', 'sliced_tomato'];
+        const allowed = ['bread', 'cooked_patty', 'chopped_lettuce', 'sliced_tomato', 'sliced_cheese'];
 
         if (counter.item.type === 'plate' && allowed.includes(player.heldItem.type)) {
           if (!counter.item.plateContents.includes(player.heldItem.type)) {
@@ -269,7 +281,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }
     }
 
-    // Broadcast counter & held item updates
     this.broadcast('counter_update', {
       id: counter.id,
       type: counter.type,
@@ -313,8 +324,8 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     order.id = `order_${this.orderCounter}`;
     order.recipeKey = chosen.key;
     order.name = chosen.name;
-    order.remainingTime = 60;
-    order.maxTime = 60;
+    order.remainingTime = 65;
+    order.maxTime = 65;
     order.rewardPoints = chosen.points;
     order.requiredIngredients = new ArraySchema<string>(...chosen.ingredients);
 
@@ -337,7 +348,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
   update(deltaSeconds: number) {
     if (this.state.gameState !== 'PLAYING') return;
 
-    // 1. Match Timer
     this.state.matchTimeRemaining -= deltaSeconds;
     if (this.state.matchTimeRemaining <= 0) {
       this.state.matchTimeRemaining = 0;
@@ -346,7 +356,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       return;
     }
 
-    // 2. Order Timers
     let orderChanged = false;
     for (let i = this.state.orders.length - 1; i >= 0; i--) {
       const order = this.state.orders[i];
@@ -362,7 +371,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }
     }
 
-    // Order Spawning
     this.timeSinceSpawn += deltaSeconds;
     if (this.state.orders.length < 3 && this.timeSinceSpawn >= this.spawnInterval) {
       this.spawnOrder();
@@ -374,13 +382,12 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       this.broadcastOrders();
     }
 
-    // 3. Stove cooking & burning simulation
     this.state.counters.forEach((counter) => {
       if (counter.type === 'stove' && counter.item) {
         if (counter.item.type === 'raw_meat') {
           counter.cookingTimer += deltaSeconds;
           counter.stoveState = 'cooking';
-          if (counter.cookingTimer >= 6.0) {
+          if (counter.cookingTimer >= 5.5) {
             counter.item.type = 'cooked_patty';
             counter.stoveState = 'cooked';
             this.broadcast('counter_update', {
@@ -394,7 +401,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
           }
         } else if (counter.item.type === 'cooked_patty') {
           counter.cookingTimer += deltaSeconds;
-          if (counter.cookingTimer >= 9.5 && counter.stoveState !== 'burning') {
+          if (counter.cookingTimer >= 8.5 && counter.stoveState !== 'burning') {
             counter.stoveState = 'burning';
             this.broadcast('counter_update', {
               id: counter.id,
@@ -405,7 +412,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
               cookingTimer: counter.cookingTimer
             });
           }
-          if (counter.cookingTimer >= 12.0 && counter.stoveState !== 'burnt') {
+          if (counter.cookingTimer >= 11.0 && counter.stoveState !== 'burnt') {
             counter.item.type = 'burnt_patty';
             counter.stoveState = 'burnt';
             this.broadcast('counter_update', {
@@ -430,7 +437,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     player.name = options.name || `Chef ${this.state.players.size + 1}`;
     player.color = CHEF_COLORS[this.state.players.size % CHEF_COLORS.length];
 
-    // Spawn players at open spacious kitchen spots
     const spawnOffsets = [
       { x: 540, y: 278 },
       { x: 740, y: 278 },
@@ -447,8 +453,6 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     }
 
     this.state.players.set(client.sessionId, player);
-    console.log(`[KitchenRoom] Player ${player.name} (${client.sessionId}) joined room ${this.state.roomCode}. Total: ${this.state.players.size}`);
-
     this.broadcastPlayerList();
   }
 
@@ -508,12 +512,12 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     add(0, 4, 'stove');
     add(0, 5, 'clear');
 
-    // RIGHT COLUMN
+    // RIGHT COLUMN (with Cheese crate)
     add(8, 1, 'crate_lettuce');
     add(8, 2, 'crate_tomato');
-    add(8, 3, 'cutting_board');
+    add(8, 3, 'crate_cheese');
     add(8, 4, 'cutting_board');
-    add(8, 5, 'clear');
+    add(8, 5, 'cutting_board');
 
     // BOTTOM ROW
     add(0, 6, 'clear');

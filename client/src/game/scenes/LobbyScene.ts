@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
 import { NetworkManager } from '../../multiplayer/NetworkManager';
+import { ChefSkin, KitchenMapId } from '../types';
 
 export class LobbyScene extends Phaser.Scene {
   private network = NetworkManager.getInstance();
   private playerName: string = 'Đầu Bếp';
+  private selectedSkin: ChefSkin = ChefSkin.CLASSIC;
+  private selectedMap: KitchenMapId = KitchenMapId.TRADITIONAL;
   private isInRoom = false;
   private currentRoomCode: string = '';
 
@@ -15,6 +18,7 @@ export class LobbyScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private startBtn!: Phaser.GameObjects.Container;
   private readyBtn!: Phaser.GameObjects.Container;
+  private mapSelectorContainer?: Phaser.GameObjects.Container;
 
   constructor() {
     super('LobbyScene');
@@ -23,33 +27,27 @@ export class LobbyScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
-    // Load saved name
     const savedName = localStorage.getItem('kitchen_chaos_player_name');
-    if (savedName) {
-      this.playerName = savedName;
-    }
+    if (savedName) this.playerName = savedName;
 
-    // Background gradient / dark slate
+    const savedSkin = localStorage.getItem('kitchen_chaos_player_skin');
+    if (savedSkin) this.selectedSkin = savedSkin as ChefSkin;
+
     this.add.rectangle(width / 2, height / 2, width, height, 0x0b0f19);
 
     // Title Header
-    this.add.text(width / 2, 55, 'KITCHEN CHAOS ONLINE', {
-      font: '900 36px Arial',
+    this.add.text(width / 2, 60, 'KITCHEN CHAOS ONLINE', {
+      font: '900 42px Arial',
       color: '#fbbf24'
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, 90, 'Trò chơi nấu ăn phối hợp nhiều người thời gian thực', {
-      font: 'bold 13px Arial',
+    this.add.text(width / 2, 100, 'Trò chơi nấu ăn phối hợp nhiều người thời gian thực', {
+      font: 'bold 14px Arial',
       color: '#94a3b8'
     }).setOrigin(0.5);
 
-    // Create Main Menu UI
     this.createMainMenu(width, height);
-
-    // Create In-Room Lobby UI
     this.createLobbyRoomUI(width, height);
-
-    // Check if URL has ?room=CODE
     this.checkUrlRoomCode();
   }
 
@@ -63,12 +61,12 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private createMainMenu(width: number, height: number) {
-    this.mainMenuContainer = this.add.container(width / 2, height / 2 + 25);
+    this.mainMenuContainer = this.add.container(width / 2, height / 2 + 35);
 
-    // Name Input Box Representation (Calls In-game HTML Modal, never exits fullscreen!)
-    const nameBox = this.add.rectangle(0, -95, 340, 46, 0x1e293b).setStrokeStyle(2, 0x3b82f6).setInteractive();
-    const nameLabel = this.add.text(0, -95, `Tên: ${this.playerName} ✎`, {
-      font: 'bold 16px Arial',
+    // 1. Name Input Box
+    const nameBox = this.add.rectangle(0, -140, 360, 48, 0x1e293b).setStrokeStyle(2, 0x3b82f6).setInteractive();
+    const nameLabel = this.add.text(0, -140, `Tên: ${this.playerName} ✎`, {
+      font: 'bold 17px Arial',
       color: '#ffffff'
     }).setOrigin(0.5);
 
@@ -85,13 +83,47 @@ export class LobbyScene extends Phaser.Scene {
       }
     });
 
-    // Button 1: Create Online Room
-    const createBtn = this.createButton(0, -25, 340, 50, 0x2563eb, '🚀 TẠO PHÒNG MỚI (HOST)', () => {
+    // 2. Character Skin Selector Carousel
+    const skinTitle = this.add.text(0, -95, 'CHỌN NHÂN VẬT ĐẦU BẾP:', { font: 'bold 12px Arial', color: '#94a3b8' }).setOrigin(0.5);
+
+    const skins: { id: ChefSkin; label: string }[] = [
+      { id: ChefSkin.CLASSIC, label: '👨‍🍳 Cổ Điển' },
+      { id: ChefSkin.PANDA, label: '🐼 Panda' },
+      { id: ChefSkin.FOX, label: '🦊 Hồ Ly' },
+      { id: ChefSkin.ROBOT, label: '🤖 Robot' }
+    ];
+
+    const skinButtons: Phaser.GameObjects.Rectangle[] = [];
+    skins.forEach((s, idx) => {
+      const btnX = (idx - 1.5) * 92;
+      const btnY = -65;
+      const isSelected = this.selectedSkin === s.id;
+      const rect = this.add.rectangle(btnX, btnY, 86, 34, isSelected ? 0x2563eb : 0x1e293b)
+        .setStrokeStyle(2, isSelected ? 0x38bdf8 : 0x475569)
+        .setInteractive();
+
+      const txt = this.add.text(btnX, btnY, s.label, { font: 'bold 12px Arial', color: '#ffffff' }).setOrigin(0.5);
+
+      rect.on('pointerdown', () => {
+        this.selectedSkin = s.id;
+        localStorage.setItem('kitchen_chaos_player_skin', s.id);
+        skinButtons.forEach((b, i) => {
+          const active = skins[i].id === this.selectedSkin;
+          b.setFillStyle(active ? 0x2563eb : 0x1e293b);
+          b.setStrokeStyle(2, active ? 0x38bdf8 : 0x475569);
+        });
+      });
+
+      skinButtons.push(rect);
+      this.mainMenuContainer.add([rect, txt]);
+    });
+
+    // 3. Action Buttons
+    const createBtn = this.createButton(0, -10, 360, 52, 0x2563eb, '🚀 TẠO PHÒNG MỚI (HOST)', () => {
       this.createOnlineRoom();
     });
 
-    // Button 2: Join By Code (Numeric modal with Numpad)
-    const joinBtn = this.createButton(0, 40, 340, 50, 0x059669, '🔑 VÀO PHÒNG BẰNG MÃ SỐ', () => {
+    const joinBtn = this.createButton(0, 55, 360, 52, 0x059669, '🔑 VÀO PHÒNG BẰNG MÃ SỐ', () => {
       const openModal = (window as any).openCustomModal;
       if (openModal) {
         openModal('NHẬP MÃ PHÒNG (6 CHỮ SỐ)', 'Ví dụ: 123456', '', 'number', (code: string) => {
@@ -102,35 +134,35 @@ export class LobbyScene extends Phaser.Scene {
       }
     });
 
-    // Button 3: Solo Offline Mode
-    const soloBtn = this.createButton(0, 105, 340, 44, 0x475569, '🍳 CHƠI MỘT MÌNH (SOLO)', () => {
+    const soloBtn = this.createButton(0, 120, 360, 46, 0x475569, '🍳 CHƠI MỘT MÌNH (SOLO)', () => {
       this.network.leaveRoom();
-      this.scene.start('GameScene', { isMultiplayer: false });
+      this.scene.start('GameScene', {
+        isMultiplayer: false,
+        skin: this.selectedSkin,
+        mapId: this.selectedMap
+      });
     });
 
-    // Status message
-    this.statusText = this.add.text(0, 155, '', {
-      font: 'bold 14px Arial',
+    this.statusText = this.add.text(0, 168, '', {
+      font: 'bold 15px Arial',
       color: '#ef4444'
     }).setOrigin(0.5);
 
-    this.mainMenuContainer.add([nameBox, nameLabel, createBtn, joinBtn, soloBtn, this.statusText]);
+    this.mainMenuContainer.add([nameBox, nameLabel, skinTitle, createBtn, joinBtn, soloBtn, this.statusText]);
   }
 
   private createLobbyRoomUI(width: number, height: number) {
-    this.lobbyRoomContainer = this.add.container(width / 2, height / 2 + 20).setVisible(false);
+    this.lobbyRoomContainer = this.add.container(width / 2, height / 2 + 25).setVisible(false);
 
-    // Room info box
-    const box = this.add.rectangle(0, 0, 540, 340, 0x1e293b, 0.95).setStrokeStyle(2, 0x3b82f6);
+    const box = this.add.rectangle(0, 0, 600, 380, 0x1e293b, 0.95).setStrokeStyle(2, 0x3b82f6);
 
-    this.roomCodeText = this.add.text(0, -135, 'MÃ PHÒNG: ......', {
-      font: '900 26px Arial',
+    this.roomCodeText = this.add.text(0, -150, 'MÃ PHÒNG: ......', {
+      font: '900 30px Arial',
       color: '#38bdf8'
     }).setOrigin(0.5);
 
-    // Copy Invite Link Button
-    const copyBtn = this.createButton(0, -95, 260, 34, 0x0284c7, '📋 SAO CHÉP LINK MỜI', () => {
-      const code = this.currentRoomCode || this.network.room?.state?.roomCode;
+    const copyBtn = this.createButton(0, -108, 260, 34, 0x0284c7, '📋 SAO CHÉP LINK MỜI', () => {
+      const code = this.currentRoomCode || (this.network.room as any)?.options?.roomCode;
       if (code) {
         const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
         navigator.clipboard.writeText(url).then(() => {
@@ -138,33 +170,75 @@ export class LobbyScene extends Phaser.Scene {
         }).catch(() => {
           prompt('Sao chép đường link mời bạn bè:', url);
         });
-      } else {
-        alert('Đang đồng bộ mã phòng từ máy chủ, vui lòng thử lại sau 1 giây...');
       }
     });
 
+    // Map Selector Pills (for Host)
+    this.mapSelectorContainer = this.add.container(0, -68);
+    const mapLabel = this.add.text(-220, 0, 'BẢN ĐỒ:', { font: 'bold 12px Arial', color: '#fbbf24' }).setOrigin(0, 0.5);
+    this.mapSelectorContainer.add(mapLabel);
+
+    const mapOptions: { id: KitchenMapId; label: string }[] = [
+      { id: KitchenMapId.TRADITIONAL, label: '🏠 Tiêu Chuẩn' },
+      { id: KitchenMapId.CONVEYOR, label: '🔄 Băng Chuyền' },
+      { id: KitchenMapId.SPLIT_KITCHEN, label: '⚡ Tách Đôi' }
+    ];
+
+    const mapBtns: Phaser.GameObjects.Rectangle[] = [];
+    mapOptions.forEach((m, idx) => {
+      const mX = -90 + idx * 115;
+      const isSel = this.selectedMap === m.id;
+      const mRect = this.add.rectangle(mX, 0, 108, 28, isSel ? 0xd97706 : 0x334155)
+        .setStrokeStyle(1.5, isSel ? 0xfbbf24 : 0x475569)
+        .setInteractive();
+      const mText = this.add.text(mX, 0, m.label, { font: 'bold 11px Arial', color: '#ffffff' }).setOrigin(0.5);
+
+      mRect.on('pointerdown', () => {
+        this.selectedMap = m.id;
+        mapBtns.forEach((b, i) => {
+          const active = mapOptions[i].id === this.selectedMap;
+          b.setFillStyle(active ? 0xd97706 : 0x334155);
+          b.setStrokeStyle(1.5, active ? 0xfbbf24 : 0x475569);
+        });
+        if (this.network.room) {
+          this.network.room.send('change_map', { mapId: m.id });
+        }
+      });
+
+      mapBtns.push(mRect);
+      this.mapSelectorContainer?.add([mRect, mText]);
+    });
+
     // Players list container
-    this.playerListContainer = this.add.container(0, -40);
+    this.playerListContainer = this.add.container(0, -20);
 
     // Ready Button
-    this.readyBtn = this.createButton(-120, 125, 200, 44, 0x10b981, 'SẴN SÀNG', () => {
+    this.readyBtn = this.createButton(-130, 145, 210, 46, 0x10b981, 'SẴN SÀNG', () => {
       this.network.setReady();
     });
 
     // Start Game Button (for Host)
-    this.startBtn = this.createButton(120, 125, 200, 44, 0xf59e0b, 'BẮT ĐẦU NẤU', () => {
+    this.startBtn = this.createButton(130, 145, 210, 46, 0xf59e0b, 'BẮT ĐẦU NẤU', () => {
       this.network.startGame();
     });
 
-    // Leave Room Button
-    const leaveBtn = this.createButton(245, -145, 36, 30, 0xef4444, '✕', () => {
+    const leaveBtn = this.createButton(275, -165, 38, 32, 0xef4444, '✕', () => {
       this.network.leaveRoom();
       this.isInRoom = false;
       this.mainMenuContainer.setVisible(true);
       this.lobbyRoomContainer.setVisible(false);
     });
 
-    this.lobbyRoomContainer.add([box, this.roomCodeText, copyBtn, this.playerListContainer, this.readyBtn, this.startBtn, leaveBtn]);
+    this.lobbyRoomContainer.add([
+      box,
+      this.roomCodeText,
+      copyBtn,
+      this.mapSelectorContainer,
+      this.playerListContainer,
+      this.readyBtn,
+      this.startBtn,
+      leaveBtn
+    ]);
   }
 
   private async createOnlineRoom() {
@@ -185,7 +259,7 @@ export class LobbyScene extends Phaser.Scene {
       this.onRoomJoined(room);
     } catch (err: any) {
       console.error(err);
-      this.statusText.setText('Mã phòng không tồn tại hoặc đã đầy!').setColor('#ef4444');
+      this.statusText.setText(err.message || 'Mã phòng không tồn tại hoặc đã đầy!').setColor('#ef4444');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }
@@ -196,7 +270,6 @@ export class LobbyScene extends Phaser.Scene {
     this.lobbyRoomContainer.setVisible(true);
     this.statusText.setText('');
 
-    // Set code immediately
     const initCode = (room.options && room.options.roomCode) || room.state?.roomCode;
     if (initCode) {
       this.currentRoomCode = initCode;
@@ -205,22 +278,25 @@ export class LobbyScene extends Phaser.Scene {
       this.roomCodeText.setText('MÃ PHÒNG: Đang tải...');
     }
 
-    // Direct room code message
     room.onMessage('room_code', (code: string) => {
       this.currentRoomCode = code;
       this.roomCodeText.setText(`MÃ PHÒNG: ${code}`);
     });
 
-    // Dedicated players list broadcast message from server
     room.onMessage('players_update', (list: any[]) => {
       this.renderPlayerList(list);
     });
 
-    // Game start signal
+    room.onMessage('map_changed', (data: { mapId: KitchenMapId }) => {
+      this.selectedMap = data.mapId;
+    });
+
     room.onMessage('game_started', (data: any) => {
       this.scene.start('GameScene', {
         isMultiplayer: true,
         roomCode: data?.roomCode || this.currentRoomCode,
+        mapId: this.selectedMap,
+        skin: this.selectedSkin,
         players: data?.players || []
       });
     });
@@ -231,24 +307,21 @@ export class LobbyScene extends Phaser.Scene {
     let isCurrentHost = false;
 
     players.forEach((p, idx) => {
-      const y = idx * 38;
+      const y = idx * 40;
       const isMe = p.id === this.network.mySessionId;
       if (isMe && p.isHost) isCurrentHost = true;
 
-      // Card Background
-      const bg = this.add.rectangle(0, y, 480, 32, isMe ? 0x334155 : 0x0f172a)
+      const bg = this.add.rectangle(0, y, 540, 34, isMe ? 0x334155 : 0x0f172a)
         .setStrokeStyle(1, 0x475569);
 
-      // Name & Host Crown
       const hostBadge = p.isHost ? '👑 ' : '';
       const meBadge = isMe ? ' (Bạn)' : '';
-      const nameTxt = this.add.text(-220, y, `${hostBadge}${p.name}${meBadge}`, {
+      const nameTxt = this.add.text(-250, y, `${hostBadge}${p.name}${meBadge}`, {
         font: 'bold 15px Arial',
         color: p.color || '#ffffff'
       }).setOrigin(0, 0.5);
 
-      // Ready status
-      const readyTxt = this.add.text(220, y, p.isReady ? '✔ ĐÃ SẴN SÀNG' : '⏳ CHỜ...', {
+      const readyTxt = this.add.text(250, y, p.isReady ? '✔ ĐÃ SẴN SÀNG' : '⏳ CHỜ...', {
         font: 'bold 13px Arial',
         color: p.isReady ? '#10b981' : '#f59e0b'
       }).setOrigin(1, 0.5);
@@ -256,16 +329,15 @@ export class LobbyScene extends Phaser.Scene {
       this.playerListContainer.add([bg, nameTxt, readyTxt]);
     });
 
-    // Layout buttons:
-    // If Host: show both SẴN SÀNG and BẮT ĐẦU NẤU
-    // If Guest: center SẴN SÀNG button
     if (isCurrentHost) {
-      this.readyBtn.setPosition(-120, 125);
+      this.readyBtn.setPosition(-130, 145);
       this.startBtn.setVisible(true);
-      this.startBtn.setPosition(120, 125);
+      this.startBtn.setPosition(130, 145);
+      this.mapSelectorContainer?.setVisible(true);
     } else {
-      this.readyBtn.setPosition(0, 125);
+      this.readyBtn.setPosition(0, 145);
       this.startBtn.setVisible(false);
+      this.mapSelectorContainer?.setVisible(false);
     }
   }
 
@@ -273,22 +345,16 @@ export class LobbyScene extends Phaser.Scene {
     const container = this.add.container(x, y);
     const rect = this.add.rectangle(0, 0, w, h, color).setInteractive().setStrokeStyle(1, 0xffffff, 0.3);
     const label = this.add.text(0, 0, text, {
-      font: 'bold 14px Arial',
+      font: 'bold 15px Arial',
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    rect.on('pointerdown', () => {
-      rect.setScale(0.96);
-    });
-
+    rect.on('pointerdown', () => rect.setScale(0.96));
     rect.on('pointerup', () => {
       rect.setScale(1.0);
       callback();
     });
-
-    rect.on('pointerout', () => {
-      rect.setScale(1.0);
-    });
+    rect.on('pointerout', () => rect.setScale(1.0));
 
     container.add([rect, label]);
     return container;

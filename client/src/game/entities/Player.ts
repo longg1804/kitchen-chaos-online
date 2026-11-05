@@ -11,46 +11,46 @@ export class Player {
   public heldItemSprite?: Phaser.GameObjects.Sprite;
   public plateSubSprites: Phaser.GameObjects.Sprite[] = [];
 
-  public facingDirection = { x: 0, y: 1 }; // Default facing down
-  public readonly speed = 220; // Movement speed
+  public facingDirection = { x: 0, y: 1 };
+  public readonly speed = 240;
   public isChopping = false;
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, skinKey: string = 'chef_classic') {
     this.scene = scene;
 
-    this.sprite = scene.physics.add.sprite(x, y, 'chef_player');
+    this.sprite = scene.physics.add.sprite(x, y, skinKey);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.body.setSize(32, 28);
     this.sprite.body.setOffset(8, 18);
     this.sprite.setDepth(30);
   }
 
-  public update(deltaSeconds: number, input: PlayerInput, counters: KitchenCounter[], onDelivery: (item: KitchenItem) => void) {
-    const { dx, dy, actionJustPressed, actionHeld, pickupDropJustPressed } = input;
+  public update(
+    deltaSeconds: number,
+    input: PlayerInput,
+    counters: KitchenCounter[],
+    onDelivery: (item: KitchenItem) => void,
+    onThrow?: (item: KitchenItem, startX: number, startY: number, targetX: number, targetY: number) => void
+  ) {
+    const { dx, dy, actionHeld, pickupDropJustPressed, throwJustPressed } = input;
 
-    // 1. Movement logic
+    // Movement
     const length = Math.hypot(dx, dy);
     if (length > 0.1) {
       const normX = dx / length;
       const normY = dy / length;
       this.sprite.setVelocity(normX * this.speed, normY * this.speed);
-
       this.facingDirection = { x: normX, y: normY };
 
-      // Flip sprite horizontally when moving left
-      if (normX < -0.2) {
-        this.sprite.setFlipX(true);
-      } else if (normX > 0.2) {
-        this.sprite.setFlipX(false);
-      }
+      if (normX < -0.2) this.sprite.setFlipX(true);
+      else if (normX > 0.2) this.sprite.setFlipX(false);
     } else {
       this.sprite.setVelocity(0, 0);
     }
 
-    // 2. Identify nearest counter in facing range
     const nearestCounter = this.findFacingCounter(counters);
 
-    // 3. Action / Chopping interaction
+    // Cutting Action
     if (actionHeld && nearestCounter && nearestCounter.type === CounterType.CUTTING_BOARD) {
       this.isChopping = true;
       nearestCounter.cutAction(deltaSeconds);
@@ -58,19 +58,68 @@ export class Player {
       this.isChopping = false;
     }
 
-    // 4. Pickup / Drop interaction
+    // Pickup / Drop
     if (pickupDropJustPressed && nearestCounter) {
       this.handlePickupDrop(nearestCounter, onDelivery);
     }
 
-    // 5. Update held item visual position
+    // THROW ACTION (Phase 3)
+    if (throwJustPressed && this.heldItem && this.heldItem.type !== IngredientType.PLATE) {
+      this.throwCurrentItem(counters, onThrow);
+    }
+
     this.updateHeldItemPosition();
+  }
+
+  private throwCurrentItem(
+    counters: KitchenCounter[],
+    onThrow?: (item: KitchenItem, startX: number, startY: number, targetX: number, targetY: number) => void
+  ) {
+    if (!this.heldItem) return;
+    const itemToThrow = this.heldItem;
+    this.heldItem = null;
+    this.destroyHeldItemVisual();
+
+    const startX = this.sprite.x;
+    const startY = this.sprite.y - 10;
+    const throwDistance = 160;
+    const targetX = startX + this.facingDirection.x * throwDistance;
+    const targetY = startY + this.facingDirection.y * throwDistance;
+
+    SoundManager.getInstance().playDrop();
+
+    // Create flying sprite
+    const flyingSprite = this.scene.add.sprite(startX, startY, `item_${itemToThrow.type}`).setDepth(45);
+
+    // Arc trajectory tween
+    this.scene.tweens.add({
+      targets: flyingSprite,
+      x: targetX,
+      y: targetY,
+      duration: 350,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        // Try landing on counter nearest to target
+        let landed = false;
+        for (const c of counters) {
+          if (Phaser.Math.Distance.Between(targetX, targetY, c.x, c.y) < 38) {
+            const leftover = c.placeItem(itemToThrow);
+            if (!leftover) landed = true;
+            break;
+          }
+        }
+        flyingSprite.destroy();
+      }
+    });
+
+    if (onThrow) {
+      onThrow(itemToThrow, startX, startY, targetX, targetY);
+    }
   }
 
   private handlePickupDrop(counter: KitchenCounter, onDelivery: (item: KitchenItem) => void) {
     const sound = SoundManager.getInstance();
 
-    // SPECIAL: If counter is TRASH
     if (counter.type === CounterType.TRASH) {
       if (this.heldItem) {
         this.heldItem = null;
@@ -80,7 +129,6 @@ export class Player {
       return;
     }
 
-    // SPECIAL: If counter is DELIVERY
     if (counter.type === CounterType.DELIVERY) {
       if (this.heldItem && this.heldItem.type === IngredientType.PLATE) {
         onDelivery(this.heldItem);
@@ -90,19 +138,13 @@ export class Player {
       return;
     }
 
-    // Normal Counters / Crates / Stove / Cutting Board
     if (this.heldItem) {
-      // Trying to drop or combine item onto counter
       const remainingItem = counter.placeItem(this.heldItem);
       this.heldItem = remainingItem;
       this.destroyHeldItemVisual();
-      if (this.heldItem) {
-        this.createHeldItemVisual();
-      } else {
-        sound.playDrop();
-      }
+      if (this.heldItem) this.createHeldItemVisual();
+      else sound.playDrop();
     } else {
-      // Trying to pick item from counter
       const picked = counter.pickItem();
       if (picked) {
         this.heldItem = picked;
@@ -131,14 +173,15 @@ export class Player {
     return closest;
   }
 
-  private createHeldItemVisual() {
+  public createHeldItemVisual() {
     if (!this.heldItem) return;
 
     let texKey = `item_${this.heldItem.type}`;
     if (this.heldItem.type === IngredientType.PLATE && this.heldItem.plateContents) {
-      const hasAll = [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO]
-        .every(ing => this.heldItem!.plateContents!.includes(ing));
-      if (hasAll) {
+      const contents = this.heldItem.plateContents;
+      if (contents.length === 2 && contents.includes(IngredientType.CHOPPED_LETTUCE) && contents.includes(IngredientType.SLICED_TOMATO)) {
+        texKey = 'item_salad';
+      } else if (contents.length >= 3 && contents.includes(IngredientType.BREAD) && contents.includes(IngredientType.COOKED_PATTY)) {
         texKey = 'item_burger';
       }
     }
@@ -146,27 +189,28 @@ export class Player {
     this.heldItemSprite = this.scene.add.sprite(this.sprite.x, this.sprite.y - 32, texKey).setDepth(35);
   }
 
-  private updateHeldItemPosition() {
+  public updateHeldItemPosition() {
     if (!this.heldItem || !this.heldItemSprite) return;
 
-    // Bobbing effect when moving
     const isMoving = this.sprite.body.velocity.length() > 5;
     const bob = isMoving ? Math.sin(this.scene.time.now / 100) * 2 : 0;
 
     this.heldItemSprite.setPosition(this.sprite.x, this.sprite.y - 28 + bob);
 
-    // Update plate contents if any
     this.plateSubSprites.forEach(s => s.destroy());
     this.plateSubSprites = [];
 
     if (this.heldItem.type === IngredientType.PLATE && this.heldItem.plateContents) {
-      const hasAll = [IngredientType.BREAD, IngredientType.COOKED_PATTY, IngredientType.CHOPPED_LETTUCE, IngredientType.SLICED_TOMATO]
-        .every(ing => this.heldItem!.plateContents!.includes(ing));
+      const contents = this.heldItem.plateContents;
+      const isSalad = contents.length === 2 && contents.includes(IngredientType.CHOPPED_LETTUCE) && contents.includes(IngredientType.SLICED_TOMATO);
+      const isBurger = contents.length >= 3 && contents.includes(IngredientType.BREAD) && contents.includes(IngredientType.COOKED_PATTY);
 
-      if (hasAll) {
+      if (isSalad) {
+        this.heldItemSprite.setTexture('item_salad');
+      } else if (isBurger) {
         this.heldItemSprite.setTexture('item_burger');
       } else {
-        this.heldItem.plateContents.forEach((ing, idx) => {
+        contents.forEach((ing, idx) => {
           const subSprite = this.scene.add.sprite(this.sprite.x, this.sprite.y - 30 - idx * 4 + bob, `item_${ing}`)
             .setScale(0.65)
             .setDepth(36 + idx);
@@ -176,7 +220,7 @@ export class Player {
     }
   }
 
-  private destroyHeldItemVisual() {
+  public destroyHeldItemVisual() {
     this.heldItemSprite?.destroy();
     this.heldItemSprite = undefined;
     this.plateSubSprites.forEach(s => s.destroy());
