@@ -25,11 +25,18 @@ export class HUDOverlay3D {
   private scoreEl!: HTMLElement;
   private timerEl!: HTMLElement;
   private ordersContainer!: HTMLElement;
+  private promptEl!: HTMLElement;
   private gameOverEl!: HTMLElement;
   private dashBtnEl?: HTMLElement;
   private actionBtnEl?: HTMLElement;
   private actionBtnEnabled = false;
   private currentActionLabel = '';
+  private currentPromptKey = '';
+  private lastScore = 0;
+  private orderCardEls: Map<
+    string,
+    { card: HTMLElement; fill: HTMLElement; timeLabel: HTMLElement }
+  > = new Map();
   private onExitCallback: () => void;
   private onScreenshotCallback?: () => void;
 
@@ -56,13 +63,37 @@ export class HUDOverlay3D {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
 
+    this.injectHUDKeyframes();
     this.buildTopBar();
     this.buildOrdersList();
+    this.buildInteractionPrompt();
     this.buildMobileControls();
     this.buildDesktopHints();
     this.buildGameOverModal();
 
     document.body.appendChild(this.container);
+  }
+
+  private injectHUDKeyframes() {
+    if (document.getElementById('hud-3d-keyframes')) return;
+    const style = document.createElement('style');
+    style.id = 'hud-3d-keyframes';
+    style.textContent = `
+      @keyframes hudOrderEnter {
+        0% { opacity: 0; transform: translateY(-24px) scale(0.88); }
+        70% { opacity: 1; transform: translateY(3px) scale(1.03); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes hudTimerPulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35); }
+        50% { transform: scale(1.06); box-shadow: 0 0 22px rgba(239, 68, 68, 0.75); }
+      }
+      @keyframes hudUrgentCard {
+        0%, 100% { border-color: #ef4444; }
+        50% { border-color: #fca5a5; }
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   private buildTopBar() {
@@ -77,39 +108,41 @@ export class HUDOverlay3D {
       pointer-events: auto;
     `;
 
-    // Center: Score & Combo
+    // Center: Score & Combo Badge
     this.scoreEl = document.createElement('div');
     this.scoreEl.style.cssText = `
-      background: rgba(15, 23, 42, 0.88);
-      border: 2px solid #fbbf24;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92));
+      border: 2.5px solid #fbbf24;
       border-radius: 16px;
       padding: 6px 16px;
       color: #fbbf24;
       font-weight: 900;
       font-size: 18px;
       letter-spacing: 0.5px;
-      box-shadow: 0 4px 12px rgba(251, 191, 36, 0.25);
+      box-shadow: 0 4px 14px rgba(251, 191, 36, 0.28);
       text-align: center;
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(8px);
       white-space: nowrap;
+      transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s ease;
     `;
-    this.scoreEl.innerText = 'ĐIỂM: 0 (x1)';
+    this.scoreEl.innerHTML = '🪙 ĐIỂM: 0 <span style="color:#fef08a;font-size:14px;">(x1)</span>';
     topBar.appendChild(this.scoreEl);
 
-    // Match Timer
+    // Match Timer Badge
     this.timerEl = document.createElement('div');
     this.timerEl.style.cssText = `
-      background: rgba(15, 23, 42, 0.88);
-      border: 2px solid #38bdf8;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92));
+      border: 2.5px solid #38bdf8;
       border-radius: 16px;
-      padding: 6px 14px;
+      padding: 6px 15px;
       color: #38bdf8;
       font-weight: 900;
       font-size: 18px;
       letter-spacing: 0.5px;
-      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
-      backdrop-filter: blur(6px);
+      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.28);
+      backdrop-filter: blur(8px);
       white-space: nowrap;
+      transition: border-color 0.2s, color 0.2s;
     `;
     this.timerEl.innerText = '⏱ 03:00';
     topBar.appendChild(this.timerEl);
@@ -120,8 +153,8 @@ export class HUDOverlay3D {
       snapBtn.innerHTML = '📸 Chụp ảnh';
       snapBtn.title = 'Phím tắt [P] để chụp ảnh màn hình';
       snapBtn.style.cssText = `
-        background: rgba(30, 41, 59, 0.85);
-        border: 1px solid #38bdf8;
+        background: rgba(30, 41, 59, 0.88);
+        border: 1.5px solid #38bdf8;
         color: #38bdf8;
         padding: 7px 12px;
         border-radius: 12px;
@@ -139,8 +172,8 @@ export class HUDOverlay3D {
     const exitBtn = document.createElement('button');
     exitBtn.innerHTML = '🚪 Thoát';
     exitBtn.style.cssText = `
-      background: rgba(30, 41, 59, 0.85);
-      border: 1px solid #475569;
+      background: rgba(30, 41, 59, 0.88);
+      border: 1.5px solid #475569;
       color: #f8fafc;
       padding: 7px 12px;
       border-radius: 12px;
@@ -170,107 +203,245 @@ export class HUDOverlay3D {
       flex-direction: row;
       gap: 10px;
       pointer-events: none;
-      max-width: calc(100vw - 360px);
+      max-width: calc(100vw - 410px);
       overflow-x: auto;
+      padding-bottom: 4px;
     `;
     this.container.appendChild(this.ordersContainer);
   }
 
+  /**
+   * Contextual Interaction Prompt Pill (PHẦN 3)
+   * Shows clear, non-overlapping action instructions above the bottom hint bar.
+   */
+  private buildInteractionPrompt() {
+    this.promptEl = document.createElement('div');
+    this.promptEl.style.cssText = `
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: rgba(15, 23, 42, 0.92);
+      border: 2px solid #38bdf8;
+      border-radius: 999px;
+      padding: 6px 18px;
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
+    `;
+    this.container.appendChild(this.promptEl);
+  }
+
+  public updateInteractionPrompt(textHtml: string, borderColor: string = '#38bdf8', visible: boolean = true) {
+    const key = `${visible}_${borderColor}_${textHtml}`;
+    if (this.currentPromptKey === key) return;
+    this.currentPromptKey = key;
+
+    if (!visible || !textHtml) {
+      this.promptEl.style.opacity = '0';
+      this.promptEl.style.transform = 'translateX(-50%) translateY(8px)';
+      return;
+    }
+
+    this.promptEl.innerHTML = textHtml;
+    this.promptEl.style.borderColor = borderColor;
+    this.promptEl.style.opacity = '1';
+    this.promptEl.style.transform = 'translateX(-50%) translateY(0)';
+  }
+
   public updateOrders(orders: OrderRecipe[]) {
-    this.ordersContainer.innerHTML = '';
+    const activeIds = new Set(orders.map((o) => o.id));
 
-    orders.forEach(order => {
-      const card = document.createElement('div');
-      card.style.cssText = `
-        background: rgba(15, 23, 42, 0.92);
-        border: 2px solid #3b82f6;
-        border-radius: 12px;
-        padding: 6px 10px;
-        min-width: 130px;
-        backdrop-filter: blur(8px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      `;
+    // Remove expired or completed order cards
+    for (const [id, entry] of this.orderCardEls.entries()) {
+      if (!activeIds.has(id)) {
+        if (entry.card.parentNode) {
+          entry.card.parentNode.removeChild(entry.card);
+        }
+        this.orderCardEls.delete(id);
+      }
+    }
 
-      // Header: Recipe Name & Points
-      const header = document.createElement('div');
-      header.style.cssText = `
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 4px;
-      `;
-      header.innerHTML = `
-        <span style="font-weight: 800; font-size: 12px; color: #ffffff; white-space: nowrap;">${order.name}</span>
-        <span style="font-weight: 900; font-size: 12px; color: #fbbf24;">+${order.rewardPoints}đ</span>
-      `;
-      card.appendChild(header);
-
-      // Ingredient Chips (Compact mini badges)
-      const chips = document.createElement('div');
-      chips.style.cssText = 'display: flex; gap: 4px; flex-wrap: nowrap; margin-bottom: 5px;';
-      order.requiredIngredients.forEach(ing => {
-        const chip = document.createElement('span');
-        chip.style.cssText = `
-          background: #1e293b;
-          border: 1px solid #475569;
-          border-radius: 6px;
-          padding: 2px 4px;
-          font-size: 11px;
-          line-height: 1;
-        `;
-        chip.innerText = this.getIngredientEmoji(ing);
-        chips.appendChild(chip);
-      });
-      card.appendChild(chips);
-
-      // Countdown Progress Bar
-      const progressBg = document.createElement('div');
-      progressBg.style.cssText = `
-        width: 100%;
-        height: 4px;
-        background: #334155;
-        border-radius: 2px;
-        overflow: hidden;
-      `;
+    orders.forEach((order) => {
+      let entry = this.orderCardEls.get(order.id);
       const ratio = Math.max(0, Math.min(1, order.remainingTime / order.maxTime));
-      const barColor = ratio > 0.4 ? '#10b981' : ratio > 0.2 ? '#f59e0b' : '#ef4444';
-      const progressFill = document.createElement('div');
-      progressFill.style.cssText = `
-        width: ${ratio * 100}%;
-        height: 100%;
-        background: ${barColor};
-        transition: width 0.2s linear;
-      `;
-      progressBg.appendChild(progressFill);
-      card.appendChild(progressBg);
+      const barColor = ratio > 0.45 ? '#10b981' : ratio > 0.22 ? '#f59e0b' : '#ef4444';
 
-      this.ordersContainer.appendChild(card);
+      if (!entry) {
+        const card = document.createElement('div');
+        card.style.cssText = `
+          background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.93) 100%);
+          border: 2px solid #38bdf8;
+          border-radius: 14px;
+          padding: 7px 11px;
+          min-width: 154px;
+          backdrop-filter: blur(8px);
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.48);
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          animation: hudOrderEnter 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        `;
+
+        // Top Row: Dish Icon Medallion + Recipe Name + Points Badge
+        const header = document.createElement('div');
+        header.style.cssText = `
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 5px;
+        `;
+        const dishIcon = this.getDishIllustrationEmoji(order);
+        header.innerHTML = `
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:16px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4));">${dishIcon}</span>
+            <span style="font-weight:900;font-size:12px;color:#f8fafc;white-space:nowrap;">${order.name}</span>
+          </div>
+          <span style="background:rgba(251,191,36,0.18);border:1px solid #fbbf24;border-radius:999px;padding:1px 6px;font-weight:900;font-size:11px;color:#fbbf24;">+${order.rewardPoints}đ</span>
+        `;
+        card.appendChild(header);
+
+        // Middle Row: Ingredient Step Badges (shows ingredient + required action icon 🔪/🍳)
+        const chips = document.createElement('div');
+        chips.style.cssText = 'display: flex; gap: 4px; flex-wrap: nowrap; margin-bottom: 6px;';
+        order.requiredIngredients.forEach((ing) => {
+          const badgeInfo = this.getIngredientStepBadge(ing);
+          const chip = document.createElement('div');
+          chip.style.cssText = `
+            background: #0f172a;
+            border: 1px solid ${badgeInfo.border};
+            border-radius: 7px;
+            padding: 2px 5px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            font-size: 12px;
+            line-height: 1;
+          `;
+          chip.innerHTML = `<span>${badgeInfo.icon}</span>${
+            badgeInfo.stepIcon
+              ? `<span style="font-size:9px;opacity:0.9;">${badgeInfo.stepIcon}</span>`
+              : ''
+          }`;
+          chips.appendChild(chip);
+        });
+        card.appendChild(chips);
+
+        // Bottom Row: Countdown Progress Bar + Seconds Remaining
+        const footer = document.createElement('div');
+        footer.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+        const progressBg = document.createElement('div');
+        progressBg.style.cssText = `
+          flex: 1;
+          height: 5px;
+          background: #1e293b;
+          border-radius: 999px;
+          overflow: hidden;
+        `;
+        const progressFill = document.createElement('div');
+        progressFill.style.cssText = `
+          width: ${ratio * 100}%;
+          height: 100%;
+          background: ${barColor};
+          border-radius: 999px;
+          transition: width 0.15s linear, background-color 0.25s ease;
+        `;
+        progressBg.appendChild(progressFill);
+
+        const timeLabel = document.createElement('span');
+        timeLabel.style.cssText = 'font-size:10px;font-weight:800;color:#94a3b8;min-width:22px;text-align:right;';
+        timeLabel.innerText = `${Math.ceil(order.remainingTime)}s`;
+
+        footer.appendChild(progressBg);
+        footer.appendChild(timeLabel);
+        card.appendChild(footer);
+
+        this.ordersContainer.appendChild(card);
+        entry = { card, fill: progressFill, timeLabel };
+        this.orderCardEls.set(order.id, entry);
+      }
+
+      // Update live bar width, color & urgency animation without recreating DOM
+      entry.fill.style.width = `${ratio * 100}%`;
+      entry.fill.style.background = barColor;
+      entry.timeLabel.innerText = `${Math.max(0, Math.ceil(order.remainingTime))}s`;
+      if (ratio <= 0.22) {
+        entry.card.style.borderColor = '#ef4444';
+        entry.card.style.animation = 'hudUrgentCard 0.6s infinite';
+        entry.timeLabel.style.color = '#f87171';
+      } else if (ratio <= 0.45) {
+        entry.card.style.borderColor = '#f59e0b';
+        entry.card.style.animation = 'none';
+        entry.timeLabel.style.color = '#fbbf24';
+      } else {
+        entry.card.style.borderColor = '#38bdf8';
+        entry.card.style.animation = 'none';
+        entry.timeLabel.style.color = '#94a3b8';
+      }
     });
   }
 
-  private getIngredientEmoji(type: IngredientType): string {
+  private getDishIllustrationEmoji(order: OrderRecipe): string {
+    const req = order.requiredIngredients;
+    if (req.includes(IngredientType.BREAD) && req.includes(IngredientType.SLICED_CHEESE)) return '🍔';
+    if (req.includes(IngredientType.BREAD)) return '🍔';
+    if (req.includes(IngredientType.COOKED_PATTY) && !req.includes(IngredientType.BREAD)) return '🥩';
+    return '🥗';
+  }
+
+  private getIngredientStepBadge(type: IngredientType): { icon: string; stepIcon: string; border: string } {
     switch (type) {
-      case IngredientType.BREAD: return '🍞';
-      case IngredientType.COOKED_PATTY: return '🥩';
-      case IngredientType.CHOPPED_LETTUCE: return '🥬';
-      case IngredientType.SLICED_TOMATO: return '🍅';
-      case IngredientType.SLICED_CHEESE: return '🧀';
-      default: return '🍴';
+      case IngredientType.BREAD:
+        return { icon: '🍞', stepIcon: '', border: '#d97706' };
+      case IngredientType.COOKED_PATTY:
+        return { icon: '🥩', stepIcon: '🍳', border: '#ef4444' };
+      case IngredientType.CHOPPED_LETTUCE:
+        return { icon: '🥬', stepIcon: '🔪', border: '#22c55e' };
+      case IngredientType.SLICED_TOMATO:
+        return { icon: '🍅', stepIcon: '🔪', border: '#f43f5e' };
+      case IngredientType.SLICED_CHEESE:
+        return { icon: '🧀', stepIcon: '🔪', border: '#facc15' };
+      default:
+        return { icon: '🍴', stepIcon: '', border: '#475569' };
     }
   }
 
   public updateScoreAndTimer(score: number, combo: number, secondsRemaining: number) {
-    this.scoreEl.innerText = `ĐIỂM: ${score} (x${combo})`;
+    this.scoreEl.innerHTML = `🪙 ĐIỂM: ${score} <span style="color:#fef08a;font-size:14px;">(x${combo})</span>`;
+    if (score !== this.lastScore) {
+      if (score > this.lastScore) {
+        this.scoreEl.style.transform = 'scale(1.16)';
+        this.scoreEl.style.boxShadow = '0 0 24px rgba(251, 191, 36, 0.85)';
+        setTimeout(() => {
+          if (this.scoreEl) {
+            this.scoreEl.style.transform = 'scale(1)';
+            this.scoreEl.style.boxShadow = '0 4px 14px rgba(251, 191, 36, 0.28)';
+          }
+        }, 220);
+      }
+      this.lastScore = score;
+    }
+
     const m = Math.floor(secondsRemaining / 60).toString().padStart(2, '0');
     const s = Math.floor(secondsRemaining % 60).toString().padStart(2, '0');
     this.timerEl.innerText = `⏱ ${m}:${s}`;
-    if (secondsRemaining <= 20) {
+    if (secondsRemaining <= 30) {
       this.timerEl.style.borderColor = '#ef4444';
-      this.timerEl.style.color = '#ef4444';
+      this.timerEl.style.color = '#f87171';
+      this.timerEl.style.animation = 'hudTimerPulse 0.85s infinite';
+    } else {
+      this.timerEl.style.borderColor = '#38bdf8';
+      this.timerEl.style.color = '#38bdf8';
+      this.timerEl.style.animation = 'none';
     }
   }
 
@@ -608,7 +779,7 @@ export class HUDOverlay3D {
       backdrop-filter: blur(4px);
       white-space: nowrap;
     `;
-    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt (Dash) &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt / Nấu / Phun bọt 🧯 &nbsp;|&nbsp; <b>[Q]</b> Ném &nbsp;|&nbsp; <b>[P]</b> Chụp ảnh';
+    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt &nbsp;|&nbsp; <b>[E]</b> Lấy nguyên liệu / Đặt &nbsp;|&nbsp; <b>[Space / F]</b> Nhặt mặt thùng / Cắt / Nấu / 🧯 &nbsp;|&nbsp; <b>[Q]</b> Ném';
     this.container.appendChild(hint);
   }
 

@@ -221,15 +221,15 @@ export class GameScene3D {
       this.sound.init(); // Initialize audio on first keypress
 
       // Strict, non-overlapping action bindings:
-      // [E] = Pick Up / Drop ONLY
-      // [Space] = Smart Contextual Action (One-tap Chop / Cook / Wash / Deliver)
+      // [E] = Pick Up / Drop (At Storage Bins: Empty hand = ALWAYS dispense from bin; Holding item = Place onto bin top surface)
+      // [Space] or [F] = Smart Contextual Action (At Storage Bins: Pick up item from bin top surface, or Swap held item & dispense)
       // [Shift] = Dash ONLY
       // [Q] = Throw ONLY
       // [P] = Screenshot ONLY
       if (e.code === 'KeyE') {
         e.preventDefault();
         this.handlePickupDrop();
-      } else if (e.code === 'Space') {
+      } else if (e.code === 'Space' || e.code === 'KeyF') {
         e.preventDefault();
         this.handleSmartAction();
       } else if (e.code === 'KeyQ') {
@@ -693,49 +693,108 @@ export class GameScene3D {
     this.updateContextualHUD();
   }
 
+  private getCrateDisplayName(type: CounterType): string {
+    switch (type) {
+      case CounterType.CRATE_BREAD:
+        return 'Bánh Mì 🍞';
+      case CounterType.CRATE_MEAT:
+        return 'Thịt Bò 🥩';
+      case CounterType.CRATE_LETTUCE:
+        return 'Xà Lách 🥬';
+      case CounterType.CRATE_TOMATO:
+        return 'Cà Chua 🍅';
+      case CounterType.CRATE_CHEESE:
+        return 'Phô Mai 🧀';
+      case CounterType.CRATE_PLATE:
+        return 'Đĩa Sứ 🍽️';
+      default:
+        return 'Nguyên Liệu 📦';
+    }
+  }
+
   private updateContextualHUD() {
     // Priority 1: Player is holding the Fire Extinguisher -> Hold-to-Spray Foam button!
     if (this.heldItem && this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
       this.hud.updateContextualActionButton('🧯<br>PHUN BỌT', '#0ea5e9', true);
+      this.hud.updateInteractionPrompt(
+        '🧯 Giữ <b>[Space]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[E]</b> Đặt bình xuống bàn',
+        '#0ea5e9',
+        true
+      );
       return;
     }
 
     const c = this.currentFacingCounter;
     if (!c) {
       this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+      this.hud.updateInteractionPrompt('', '#38bdf8', false);
       return;
     }
 
     if (c.isOnFire) {
       this.hud.updateContextualActionButton('🔥<br>ĐANG CHÁY', '#ef4444', false);
+      this.hud.updateInteractionPrompt(
+        '🔥 Trạm đang bốc cháy! Hãy lấy <b>Bình Cứu Hỏa (🧯)</b> ở góc phải trên để dập lửa!',
+        '#ef4444',
+        true
+      );
       return;
     }
 
     if (c.type === CounterType.CUTTING_BOARD) {
       const canChopBoard = c.currentItem !== null && c.currentItem !== undefined && this.isChoppable(c.currentItem.type);
       const canPlaceAndChop = !c.currentItem && this.heldItem !== null && this.isChoppable(this.heldItem.type);
+      const active = canChopBoard || canPlaceAndChop;
       this.hud.updateContextualActionButton(
         '🔪<br>CẮT',
-        canChopBoard || canPlaceAndChop ? '#f97316' : '#475569',
-        canChopBoard || canPlaceAndChop
+        active ? '#f97316' : '#475569',
+        active
       );
+      if (active) {
+        this.hud.updateInteractionPrompt(
+          '🔪 <b>[Space]</b> Cắt tự động &nbsp;•&nbsp; <b>[E]</b> Đặt / Lấy nguyên liệu',
+          '#f97316',
+          true
+        );
+      } else if (c.currentItem && !this.heldItem) {
+        this.hud.updateInteractionPrompt('✋ <b>[E]</b> Nhặt nguyên liệu đã sơ chế', '#10b981', true);
+      } else {
+        this.hud.updateInteractionPrompt('🔪 Thớt Sơ Chế — Đặt Rau / Cà Chua / Phô Mai để cắt', '#64748b', true);
+      }
       return;
     }
 
     if (c.type === CounterType.STOVE) {
       const canCookStove = c.currentItem !== null && c.currentItem !== undefined && this.isCookable(c.currentItem.type);
       const canPlaceAndCook = !c.currentItem && this.heldItem !== null && this.isCookable(this.heldItem.type);
+      const active = canCookStove || canPlaceAndCook;
       this.hud.updateContextualActionButton(
         '🍳<br>NẤU',
-        canCookStove || canPlaceAndCook ? '#ea580c' : '#475569',
-        canCookStove || canPlaceAndCook
+        active ? '#ea580c' : '#475569',
+        active
       );
+      if (c.currentItem && !this.heldItem) {
+        this.hud.updateInteractionPrompt(
+          '🍳 <b>[E]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Space]</b> Đảo thịt',
+          '#ea580c',
+          true
+        );
+      } else if (canPlaceAndCook) {
+        this.hud.updateInteractionPrompt(
+          '🍳 <b>[E / Space]</b> Đặt thịt lên chảo nướng',
+          '#ea580c',
+          true
+        );
+      } else {
+        this.hud.updateInteractionPrompt('🍳 Bếp Nướng — Đặt Thịt Bò Sống lên chảo để áp chảo', '#64748b', true);
+      }
       return;
     }
 
     if (c.id === 'counter_1_-3') {
       // Sink
       this.hud.updateContextualActionButton('💧<br>RỬA', '#0284c7', true);
+      this.hud.updateInteractionPrompt('💧 <b>[Space]</b> Rửa đĩa / Tráng tay tại Bồn Rửa', '#0284c7', true);
       return;
     }
 
@@ -746,29 +805,81 @@ export class GameScene3D {
         canDeliver ? '#10b981' : '#475569',
         canDeliver
       );
+      this.hud.updateInteractionPrompt(
+        canDeliver
+          ? '🛎️ <b>[E / Space]</b> Giao Đĩa Món Ăn hoàn chỉnh để nhận điểm!'
+          : '🛎️ Quầy Giao Món — Hãy cầm Đĩa (🍽️) có món ăn hoàn chỉnh tới đây',
+        canDeliver ? '#10b981' : '#64748b',
+        true
+      );
       return;
     }
 
-    // Ingredient Storage Bin contextual action:
-    // - If items are placed on top of the bin and hands are empty -> [Space] picks up from top surface!
-    // - If hands are empty and top is empty -> [Space] dispenses from bin!
-    // - If holding an item and top has room (< 4 items) -> [Space] places item onto flat top surface!
+    if (c.type === CounterType.TRASH) {
+      this.hud.updateContextualActionButton('🗑️<br>BỎ RÁC', '#ef4444', Boolean(this.heldItem));
+      this.hud.updateInteractionPrompt(
+        this.heldItem ? '🗑️ <b>[E]</b> Bỏ vật phẩm đang cầm vào Thùng Rác' : '🗑️ Thùng Rác',
+        '#ef4444',
+        true
+      );
+      return;
+    }
+
+    // Ingredient Storage Bin contextual action (PHẦN 2.4 & PHẦN 3):
+    // Strict separation between taking raw ingredients from inside the bin ([E]) and surface items ([Space / F])!
     if (c.type.startsWith('crate_')) {
-      if (!this.heldItem && c.surfaceItems.length > 0) {
+      const binName = this.getCrateDisplayName(c.type);
+      const count = c.surfaceItems.length;
+
+      if (!this.heldItem && count > 0) {
         this.hud.updateContextualActionButton('✋<br>NHẶT MẶT BÀN', '#0ea5e9', true);
+        this.hud.updateInteractionPrompt(
+          `📦 <b>[E]</b> Lấy ${binName} từ thùng &nbsp;•&nbsp; ✋ <b>[Space / F]</b> Nhặt vật phẩm trên mặt thùng (${count}/6)`,
+          '#0ea5e9',
+          true
+        );
         return;
       }
       if (!this.heldItem) {
         this.hud.updateContextualActionButton('📦<br>LẤY NGUYÊN LIỆU', '#10b981', true);
+        this.hud.updateInteractionPrompt(
+          `📦 <b>[E / Space]</b> Lấy ${binName} mới từ trong thùng`,
+          '#10b981',
+          true
+        );
         return;
       }
-      if (this.heldItem && c.surfaceItems.length < 4) {
-        this.hud.updateContextualActionButton('📥<br>ĐẶT LÊN MẶT', '#10b981', true);
+      if (this.heldItem && count < 6) {
+        this.hud.updateContextualActionButton('🔄<br>ĐẶT & LẤY', '#0ea5e9', true);
+        this.hud.updateInteractionPrompt(
+          `📥 <b>[E]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Space]</b> Đặt lên mặt & Lấy ${binName}`,
+          '#10b981',
+          true
+        );
+        return;
+      }
+      if (this.heldItem && count >= 6) {
+        this.hud.updateContextualActionButton('📥<br>ĐẶT KẾ BÊN', '#f59e0b', true);
+        this.hud.updateInteractionPrompt(
+          `📦 Mặt thùng đã đầy (6/6) — <b>[E]</b> Tự động đặt sang bàn trống kế bên`,
+          '#f59e0b',
+          true
+        );
         return;
       }
     }
 
+    // Regular Countertop prompts
     this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+    if (!this.heldItem && c.currentItem) {
+      this.hud.updateInteractionPrompt('✋ <b>[E]</b> Nhặt vật phẩm trên mặt bàn', '#38bdf8', true);
+    } else if (this.heldItem && !c.currentItem) {
+      this.hud.updateInteractionPrompt('📥 <b>[E]</b> Đặt vật phẩm xuống mặt bàn', '#38bdf8', true);
+    } else if (this.heldItem && c.currentItem) {
+      this.hud.updateInteractionPrompt('🍽️ <b>[E]</b> Ghép nguyên liệu vào Đĩa', '#10b981', true);
+    } else {
+      this.hud.updateInteractionPrompt('', '#38bdf8', false);
+    }
   }
 
   private updateKitchenSimulation(delta: number) {
@@ -1195,16 +1306,34 @@ export class GameScene3D {
       return;
     }
 
-    // 2.5. INGREDIENT STORAGE BIN SMART ACTION ([Space] picks up item from top surface of bin, or places/dispenses)
+    // 2.5. INGREDIENT STORAGE BIN SMART ACTION ([Space / F]):
+    // - Empty hands + items on top surface -> Picks up the nearest item sitting on top of the bin!
+    // - Holding item + free slot on top (< 6) -> Places held item onto bin top surface AND dispenses fresh ingredient from bin!
+    // - Empty hands + top surface empty -> Dispenses fresh ingredient from bin!
     if (counter.type.startsWith('crate_')) {
+      this.faceCounter(counter);
       if (!this.heldItem && counter.surfaceItems.length > 0) {
-        const picked = counter.surfaceItems.pop()!;
+        const pickIdx = this.map.getNearestSurfaceItemIndex(
+          counter,
+          this.playerPos.x + this.facingDir.x * 0.45,
+          this.playerPos.z + this.facingDir.z * 0.45
+        );
+        const [picked] = counter.surfaceItems.splice(pickIdx >= 0 ? pickIdx : counter.surfaceItems.length - 1, 1);
         this.map.rebuildSurfaceMeshes(counter);
         this.setHeldItem(picked);
         this.localPlayer.playOneShot('PICKUP');
         this.syncPlayerAnim('PICKUP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
+        this.broadcastCounterUpdate(counter);
+        return;
+      }
+      if (this.heldItem && counter.surfaceItems.length < 6) {
+        // Place held item onto flat top surface AND immediately dispense fresh raw ingredient from inside bin!
+        counter.surfaceItems.push(this.heldItem);
+        const addedIdx = counter.surfaceItems.length - 1;
+        this.map.rebuildSurfaceMeshes(counter, addedIdx);
+        this.dispenseFromCrate(counter);
         this.broadcastCounterUpdate(counter);
         return;
       }
@@ -1229,6 +1358,34 @@ export class GameScene3D {
     if (counter.type === CounterType.DELIVERY && this.heldItem && this.heldItem.type === IngredientType.PLATE) {
       this.handlePickupDrop();
     }
+  }
+
+  /**
+   * Dispenses a fresh raw ingredient or clean plate from the interior drawer of an Ingredient Storage Bin.
+   * Completely independent of how many items are sitting on the bin's flat top surface!
+   */
+  private dispenseFromCrate(counter: Counter3DData) {
+    let spawnType: IngredientType = IngredientType.BREAD;
+    if (counter.type === CounterType.CRATE_BREAD) spawnType = IngredientType.BREAD;
+    else if (counter.type === CounterType.CRATE_MEAT) spawnType = IngredientType.RAW_MEAT;
+    else if (counter.type === CounterType.CRATE_LETTUCE) spawnType = IngredientType.LETTUCE;
+    else if (counter.type === CounterType.CRATE_TOMATO) spawnType = IngredientType.TOMATO;
+    else if (counter.type === CounterType.CRATE_CHEESE) spawnType = IngredientType.CHEESE;
+    else if (counter.type === CounterType.CRATE_PLATE) spawnType = IngredientType.PLATE;
+
+    this.setHeldItem({
+      id: `item_${Date.now()}_${Math.random()}`,
+      type: spawnType,
+      plateContents: spawnType === IngredientType.PLATE ? [] : undefined,
+      cookTimer: 0,
+      burnTimer: 0,
+      cookingTimer: 0,
+      stoveState: StoveState.IDLE
+    });
+    this.localPlayer.playOneShot('PICKUP');
+    this.syncPlayerAnim('PICKUP');
+    this.map.triggerCounterBounce(counter.id);
+    this.sound.playPickup();
   }
 
   private handleDash() {
@@ -1285,7 +1442,9 @@ export class GameScene3D {
     const counter = this.currentFacingCounter;
     this.faceCounter(counter);
 
-    // 1. INGREDIENT STORAGE BINS (Supports BOTH dispensing from bin interior AND placing/stacking up to 4 items on flat top surface!)
+    // 1. INGREDIENT STORAGE BINS (PHẦN 2.3 & 2.4):
+    //    - 100% Independence between Ingredient Interaction Zone ([E] when empty-handed ALWAYS dispenses from bin!)
+    //      and Placement Surface ([E] when holding places up to 6 items on flat top surface; [Space/F] picks up from top surface!)
     if (counter.type.startsWith('crate_')) {
       if (counter.isOnFire) {
         this.sound.playBeep(true);
@@ -1293,58 +1452,25 @@ export class GameScene3D {
         return;
       }
 
-      // CASE A: Player's hands are EMPTY -> Dispense from bin (if not occluded by 4 surface items), or pick up from surface if full!
+      // CASE A: Player's hands are EMPTY -> ALWAYS dispense a fresh raw ingredient from inside the storage bin!
+      // Having 1, 2, 3, 4, 5, or 6 items on top of the bin NEVER blocks taking raw ingredients!
       if (!this.heldItem) {
-        if (counter.surfaceItems.length >= 4) {
-          // Top of bin is completely covered by 4 items -> pick up top surface item first
-          const picked = counter.surfaceItems.pop()!;
-          this.map.rebuildSurfaceMeshes(counter);
-          this.setHeldItem(picked);
-          this.localPlayer.playOneShot('PICKUP');
-          this.syncPlayerAnim('PICKUP');
-          this.map.triggerCounterBounce(counter.id);
-          this.sound.playPickup();
-          this.broadcastCounterUpdate(counter);
-          return;
-        }
-
-        // Dispense fresh raw ingredient from inside the storage bin drawer!
-        let spawnType: IngredientType = IngredientType.BREAD;
-        if (counter.type === CounterType.CRATE_BREAD) spawnType = IngredientType.BREAD;
-        else if (counter.type === CounterType.CRATE_MEAT) spawnType = IngredientType.RAW_MEAT;
-        else if (counter.type === CounterType.CRATE_LETTUCE) spawnType = IngredientType.LETTUCE;
-        else if (counter.type === CounterType.CRATE_TOMATO) spawnType = IngredientType.TOMATO;
-        else if (counter.type === CounterType.CRATE_CHEESE) spawnType = IngredientType.CHEESE;
-        else if (counter.type === CounterType.CRATE_PLATE) spawnType = IngredientType.PLATE;
-
-        this.setHeldItem({
-          id: `item_${Date.now()}_${Math.random()}`,
-          type: spawnType,
-          plateContents: spawnType === IngredientType.PLATE ? [] : undefined,
-          cookTimer: 0,
-          burnTimer: 0,
-          cookingTimer: 0,
-          stoveState: StoveState.IDLE
-        });
-        this.localPlayer.playOneShot('PICKUP');
-        this.syncPlayerAnim('PICKUP');
-        this.map.triggerCounterBounce(counter.id);
-        this.sound.playPickup();
+        this.dispenseFromCrate(counter);
         return;
       }
 
-      // CASE B: Player IS holding an item -> Place onto the flat countertop surface of the Storage Bin (or combine with a Plate on top)!
-      // Check if held item can assemble with a Plate sitting on the bin's top surface
+      // CASE B: Player IS holding an item -> Assemble with a Plate on top OR place onto the bin's flat top surface (up to 6 items)!
       if (
         this.heldItem.type !== IngredientType.PLATE &&
         this.heldItem.type !== IngredientType.FIRE_EXTINGUISHER &&
         this.heldItem.type !== IngredientType.BURNT_PATTY
       ) {
-        const plateOnBin = counter.surfaceItems.find((it) => it.type === IngredientType.PLATE);
-        if (plateOnBin) {
+        const plateIdx = counter.surfaceItems.findIndex((it) => it.type === IngredientType.PLATE);
+        if (plateIdx >= 0) {
+          const plateOnBin = counter.surfaceItems[plateIdx];
           if (!plateOnBin.plateContents) plateOnBin.plateContents = [];
           plateOnBin.plateContents.push(this.heldItem.type);
-          this.map.rebuildSurfaceMeshes(counter);
+          this.map.rebuildSurfaceMeshes(counter, plateIdx);
           this.setHeldItem(null);
           this.localPlayer.playOneShot('DROP');
           this.syncPlayerAnim('DROP');
@@ -1353,26 +1479,91 @@ export class GameScene3D {
           this.broadcastCounterUpdate(counter);
           return;
         }
+      } else if (this.heldItem.type === IngredientType.PLATE) {
+        // If holding a Plate, check if there is a non-plate ingredient sitting on top of the bin to scoop onto the plate
+        const ingIdx = counter.surfaceItems.findIndex(
+          (it) =>
+            it.type !== IngredientType.PLATE &&
+            it.type !== IngredientType.FIRE_EXTINGUISHER &&
+            it.type !== IngredientType.BURNT_PATTY
+        );
+        if (ingIdx >= 0) {
+          const [ingItem] = counter.surfaceItems.splice(ingIdx, 1);
+          if (!this.heldItem.plateContents) this.heldItem.plateContents = [];
+          this.heldItem.plateContents.push(ingItem.type);
+          this.map.rebuildSurfaceMeshes(counter);
+          this.updateHeldMesh();
+          this.localPlayer.playOneShot('PICKUP');
+          this.syncPlayerAnim('PICKUP');
+          this.map.triggerCounterBounce(counter.id);
+          this.sound.playPickup();
+          this.broadcastCounterUpdate(counter);
+          return;
+        }
       }
 
-      // Place held item into the next available slot on the bin's flat top surface (up to 4 items without overwriting!)
-      if (counter.surfaceItems.length < 4) {
+      // Place held item into the next available slot on the bin's flat top surface (up to 6 items without overwriting!)
+      if (counter.surfaceItems.length < 6) {
         counter.surfaceItems.push(this.heldItem);
-        this.map.rebuildSurfaceMeshes(counter);
+        const newIdx = counter.surfaceItems.length - 1;
+        this.map.rebuildSurfaceMeshes(counter, newIdx);
         this.setHeldItem(null);
         this.localPlayer.playOneShot('DROP');
         this.syncPlayerAnim('DROP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(counter);
+        return;
+      }
+
+      // Fallback when all 6 slots on this bin are full: find nearest reachable adjacent counter/bin with free space!
+      let fallbackCounter: Counter3DData | null = null;
+      let bestDist = 1.65;
+      for (const candidate of this.map.counters.values()) {
+        if (candidate.id === counter.id || candidate.isOnFire) continue;
+        if (candidate.id === 'counter_-4_-3' || candidate.id === 'counter_1_-3') continue;
+        if (candidate.type === CounterType.TRASH || candidate.type === CounterType.DELIVERY) continue;
+
+        const d = Math.hypot(candidate.x - this.playerPos.x, candidate.z - this.playerPos.z);
+        if (d > bestDist) continue;
+
+        if (candidate.type.startsWith('crate_') && candidate.surfaceItems.length < 6) {
+          bestDist = d;
+          fallbackCounter = candidate;
+        } else if (!candidate.type.startsWith('crate_') && !candidate.currentItem) {
+          if (candidate.type === CounterType.STOVE && !this.isCookable(this.heldItem.type)) continue;
+          bestDist = d;
+          fallbackCounter = candidate;
+        }
+      }
+
+      if (fallbackCounter) {
+        if (fallbackCounter.type.startsWith('crate_')) {
+          fallbackCounter.surfaceItems.push(this.heldItem);
+          this.map.rebuildSurfaceMeshes(fallbackCounter, fallbackCounter.surfaceItems.length - 1);
+        } else if (fallbackCounter.type === CounterType.STOVE) {
+          this.placeItemOnStove(fallbackCounter, this.heldItem);
+        } else {
+          fallbackCounter.currentItem = this.heldItem;
+          fallbackCounter.itemHolder.clear();
+          fallbackCounter.itemHolder.add(Ingredient3DFactory.createMesh(this.heldItem));
+          fallbackCounter.itemPlaceBounceTimer = 0.24;
+        }
+        this.setHeldItem(null);
+        this.localPlayer.playOneShot('DROP');
+        this.syncPlayerAnim('DROP');
+        this.map.triggerCounterBounce(fallbackCounter.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(fallbackCounter);
+        this.hud.showFloatingPopup('📦 Mặt thùng đã đầy (6/6) — Đã đặt sang bàn kế bên!', '#0ea5e9');
       } else {
         this.sound.playBeep(false);
-        this.hud.showFloatingPopup('📦 Mặt trên của thùng đã đầy (tối đa 4 vật phẩm)!', '#f59e0b');
+        this.hud.showFloatingPopup('📦 Mặt trên của thùng đã đầy (tối đa 6 vật phẩm)!', '#f59e0b');
       }
       return;
     }
 
-    // 2. TRASH BIN (Dispose held item — except Fire Extinguisher!)
+    // 2. TRASH BIN (Dispose held item — except Fire Extinguisher! + Animated Swing Lid)
     if (counter.type === CounterType.TRASH) {
       if (this.heldItem) {
         if (this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
@@ -1380,6 +1571,8 @@ export class GameScene3D {
           this.hud.showFloatingPopup('🧯 Hãy đặt Bình Cứu Hỏa lên bàn thay vì vứt vào thùng rác!', '#0ea5e9');
           return;
         }
+        counter.trashLidTimer = 0.45;
+        this.map.triggerCounterBounce(counter.id);
         this.sound.playTrash();
         this.setHeldItem(null);
         this.localPlayer.playOneShot('DROP');
@@ -1454,7 +1647,6 @@ export class GameScene3D {
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && !counter.currentItem) {
       // Drop onto empty counter
-      // Check stove restrictions (only raw or already-cooked cookable items allowed on stove; burnt items cannot be cooked again)
       if (counter.type === CounterType.STOVE && !this.isCookable(this.heldItem.type)) {
         return;
       }
@@ -1468,6 +1660,7 @@ export class GameScene3D {
         counter.itemHolder.add(mesh);
       }
 
+      counter.itemPlaceBounceTimer = 0.24;
       this.setHeldItem(null);
       this.localPlayer.playOneShot('DROP');
       this.syncPlayerAnim('DROP');
@@ -1487,12 +1680,12 @@ export class GameScene3D {
 
       // COMBINE: Plate + Ingredient assembly
       if (counter.currentItem.type === IngredientType.PLATE && this.heldItem.type !== IngredientType.PLATE) {
-        // Add held ingredient onto plate on counter
         if (!counter.currentItem.plateContents) counter.currentItem.plateContents = [];
         counter.currentItem.plateContents.push(this.heldItem.type);
 
         counter.itemHolder.clear();
         counter.itemHolder.add(Ingredient3DFactory.createMesh(counter.currentItem));
+        counter.itemPlaceBounceTimer = 0.24;
         this.setHeldItem(null);
         this.localPlayer.playOneShot('DROP');
         this.syncPlayerAnim('DROP');
@@ -1579,10 +1772,10 @@ export class GameScene3D {
     }
 
     if (closest && !closest.isOnFire && closest.type.startsWith('crate_')) {
-      // Allow thrown items to land cleanly on the flat top surface of an Ingredient Storage Bin!
-      if (closest.surfaceItems.length < 4) {
+      // Allow thrown items to land cleanly on the flat top surface of an Ingredient Storage Bin (up to 6 items)!
+      if (closest.surfaceItems.length < 6) {
         closest.surfaceItems.push(item);
-        this.map.rebuildSurfaceMeshes(closest);
+        this.map.rebuildSurfaceMeshes(closest, closest.surfaceItems.length - 1);
         this.map.triggerCounterBounce(closest.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(closest);
