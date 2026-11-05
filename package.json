@@ -10,6 +10,7 @@
     "build:server": "npm --prefix server run build",
     "start:server": "npm --prefix server run start",
     "build": "npm run build:server && npm run build:client",
+    "push": "cmd /c push.bat",
     "dev": "npm run dev:client"
   },
   "keywords": [
