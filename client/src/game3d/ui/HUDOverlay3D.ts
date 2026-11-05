@@ -1720,7 +1720,7 @@ export class HUDOverlay3D {
       white-space: nowrap;
     `;
     this.desktopHintEl.innerHTML =
-      '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space / F]</b> Cắt/Nấu/Nhặt mặt &nbsp;|&nbsp; <b>[Q]</b> Ném';
+      '⌨ <b>[WASD]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt &nbsp;|&nbsp; <b>[Space]</b> Nhặt/Đặt &nbsp;|&nbsp; <b>[E]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném';
     this.container.appendChild(this.desktopHintEl);
 
     // 2. Mobile Touch Hint Bar (Compact + Auto-fading + '?' Toggle Button)
@@ -1750,7 +1750,7 @@ export class HUDOverlay3D {
       backdrop-filter: blur(4px);
       transition: opacity 0.35s ease;
     `;
-    helpTextPill.innerHTML = '🕹️ <b>Trái:</b> Di chuyển &nbsp;•&nbsp; ✋ <b>Cầm/Thả:</b> Lấy/Đặt &nbsp;•&nbsp; 🔪 <b>Cắt/Nấu:</b> Thao tác';
+    helpTextPill.innerHTML = '🕹️ <b>Trái:</b> Di chuyển &nbsp;•&nbsp; ⚡ <b>Lướt:</b> Shift &nbsp;•&nbsp; ✋ <b>Nhặt/Đặt:</b> Space &nbsp;•&nbsp; 🔪 <b>Cắt/Nấu:</b> E';
 
     const helpBtn = document.createElement('button');
     helpBtn.type = 'button';

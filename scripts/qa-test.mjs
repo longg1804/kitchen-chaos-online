@@ -59,18 +59,26 @@ async function runTestSuite() {
     await desktopPage.screenshot({ path: path.join(SCREENSHOT_DIR, '02_desktop_gameplay.png') });
     console.log('-> Captured 02_desktop_gameplay.png');
 
-    // Simulate Keyboard Interaction
+    // Simulate Keyboard Interaction & Verify Controls
     console.log('-> Simulating Movement [W, A, S, D] & Action [E, Space]...');
     await desktopPage.keyboard.down('KeyW');
-    await desktopPage.waitForTimeout(500);
+    await desktopPage.waitForTimeout(400);
     await desktopPage.keyboard.up('KeyW');
 
-    await desktopPage.keyboard.down('KeyA');
+    await desktopPage.keyboard.down('KeyD');
     await desktopPage.waitForTimeout(400);
-    await desktopPage.keyboard.up('KeyA');
+    await desktopPage.keyboard.up('KeyD');
 
-    await desktopPage.keyboard.press('KeyE');
+    // Press Space to interact with crate or counter
+    await desktopPage.keyboard.press('Space');
     await desktopPage.waitForTimeout(300);
+
+    // Press E to perform action
+    await desktopPage.keyboard.press('KeyE');
+    await desktopPage.waitForTimeout(400);
+
+    await desktopPage.screenshot({ path: path.join(SCREENSHOT_DIR, '02b_crate_and_action_controls.png') });
+    console.log('-> Captured 02b_crate_and_action_controls.png');
 
     await desktopContext.close();
 

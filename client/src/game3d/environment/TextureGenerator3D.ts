@@ -316,13 +316,14 @@ export class TextureGenerator3D {
   }
 
   /**
-   * Overcooked-Style Ingredient Crate Top Surface Decal (Matches Reference Image 1 Row 2 Center):
-   * - Dark recessed wooden panel background (#5c3418)
-   * - Large crisp white circular plate medallion in the center
-   * - Single bold, high-contrast 2D cartoon ingredient illustration centered on the white circle!
+   * Overcooked-Style Ingredient Crate Top Surface Decal (Matches Reference Image 1 & Image 4):
+   * - Recessed Walnut wooden panel background with corner rivets
+   * - Large crisp white circular plate medallion with bold color-coded accent border ring
+   * - Large, high-contrast 2D cartoon ingredient illustration
+   * - High-contrast Vietnamese Pill Badge at the bottom so it is 100% instantly readable!
    */
   public static getIngredientBinTopDecalTexture(crateType: string): THREE.CanvasTexture {
-    const key = `bin_top_decal_oc_${crateType}`;
+    const key = `bin_top_decal_oc_v5_${crateType}`;
     if (this.cache.has(key)) return this.cache.get(key)!;
 
     const size = 512;
@@ -331,60 +332,134 @@ export class TextureGenerator3D {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
 
-    // 1. Recessed Dark Warm Wood Inner Panel (#5c3418)
-    ctx.fillStyle = '#5c3418';
+    // 1. Recessed Warm Walnut Wooden Panel
+    ctx.fillStyle = '#45220d';
     ctx.fillRect(0, 0, size, size);
 
-    // Subtle wood grain lines on recessed panel
-    ctx.strokeStyle = 'rgba(40, 20, 8, 0.35)';
-    ctx.lineWidth = 4;
-    for (let y = 16; y < size; y += 36) {
+    // Warm horizontal wood slats
+    ctx.strokeStyle = 'rgba(25, 12, 4, 0.45)';
+    ctx.lineWidth = 5;
+    for (let y = 20; y < size; y += 40) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(size, y);
       ctx.stroke();
     }
 
-    // Inner shadow around perimeter from raised wooden frame
-    ctx.strokeStyle = 'rgba(20, 10, 4, 0.55)';
-    ctx.lineWidth = 24;
+    // Heavy inset border shadow
+    ctx.strokeStyle = 'rgba(15, 8, 2, 0.65)';
+    ctx.lineWidth = 28;
     ctx.strokeRect(0, 0, size, size);
 
-    // 2. Center White Circular Plate Medallion (Just like Reference Image 1!)
-    const cx = size / 2;
-    const cy = size / 2;
-    const plateRadius = 168;
+    // Metal corner rivets
+    ctx.fillStyle = '#94a3b8';
+    [[24, 24], [size - 24, 24], [24, size - 24], [size - 24, size - 24]].forEach(([rx, ry]) => {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 7, 0, Math.PI * 2);
+      ctx.fill();
+    });
 
-    // Drop shadow under white circle
-    ctx.fillStyle = 'rgba(15, 8, 2, 0.45)';
+    const getCrateMeta = (t: string) => {
+      switch (t) {
+        case 'crate_bread': return { ring: '#f59e0b', ringDark: '#b45309', label: 'BÁNH MÌ', iconScale: 2.7 };
+        case 'crate_meat': return { ring: '#ef4444', ringDark: '#991b1b', label: 'THỊT BÒ', iconScale: 2.7 };
+        case 'crate_lettuce': return { ring: '#22c55e', ringDark: '#14532d', label: 'XÀ LÁCH', iconScale: 2.7 };
+        case 'crate_tomato': return { ring: '#dc2626', ringDark: '#7f1d1d', label: 'CÀ CHUA', iconScale: 2.7 };
+        case 'crate_cheese': return { ring: '#eab308', ringDark: '#854d0e', label: 'PHÔ MAI', iconScale: 2.7 };
+        case 'crate_mushroom': return { ring: '#d97706', ringDark: '#78350f', label: 'NẤM TƯƠI', iconScale: 2.7 };
+        case 'crate_onion': return { ring: '#a855f7', ringDark: '#581c87', label: 'HÀNH TÂY', iconScale: 2.7 };
+        case 'crate_potato': return { ring: '#ca8a04', ringDark: '#713f12', label: 'KHOAI TÂY', iconScale: 2.7 };
+        case 'crate_fish': return { ring: '#0284c7', ringDark: '#075985', label: 'CÁ HỒI', iconScale: 2.7 };
+        case 'crate_shrimp': return { ring: '#f43f5e', ringDark: '#9f1239', label: 'TÔM TƯƠI', iconScale: 2.7 };
+        case 'crate_chicken': return { ring: '#f97316', ringDark: '#9a3412', label: 'THỊT GÀ', iconScale: 2.7 };
+        case 'crate_plate': return { ring: '#06b6d4', ringDark: '#0e7490', label: 'ĐĨA SẠCH', iconScale: 2.7 };
+        default: return { ring: '#f59e0b', ringDark: '#78350f', label: 'NGUYÊN LIỆU', iconScale: 2.7 };
+      }
+    };
+
+    const meta = getCrateMeta(crateType);
+    const cx = size / 2;
+    const cy = size / 2 - 14;
+    const plateRadius = 196;
+
+    // Outer Drop Shadow under plate
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.52)';
     ctx.beginPath();
-    ctx.arc(cx, cy + 8, plateRadius + 4, 0, Math.PI * 2);
+    ctx.arc(cx, cy + 12, plateRadius + 6, 0, Math.PI * 2);
     ctx.fill();
 
-    // Crisp White Circular Plate
-    ctx.fillStyle = '#f8fafc';
-    ctx.strokeStyle = '#29170a';
-    ctx.lineWidth = 7;
+    // Vibrant Accent Color Ring (Overcooked 2 style colorful station indicator)
+    ctx.fillStyle = meta.ring;
+    ctx.strokeStyle = meta.ringDark;
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.arc(cx, cy, plateRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Subtle inner plate rim
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 4;
+    // Inner White Porcelain Plate
+    const plateGrad = ctx.createRadialGradient(cx - 30, cy - 30, 20, cx, cy, plateRadius - 16);
+    plateGrad.addColorStop(0, '#ffffff');
+    plateGrad.addColorStop(0.85, '#f8fafc');
+    plateGrad.addColorStop(1, '#e2e8f0');
+    ctx.fillStyle = plateGrad;
+    ctx.strokeStyle = meta.ringDark;
+    ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.arc(cx, cy, plateRadius - 24, 0, Math.PI * 2);
+    ctx.arc(cx, cy, plateRadius - 16, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
 
-    // 3. Single Large Bold 2D Cartoon Ingredient Illustration in the Center of the White Circle
-    if (crateType !== 'crate_plate') {
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(2.15, 2.15);
-      this.drawCartoonIngredientIcon(ctx, crateType);
-      ctx.restore();
+    // Inner bevel groove
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, plateRadius - 38, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Vector 2D Cartoon Artwork in center
+    ctx.save();
+    ctx.translate(cx, cy - 8);
+    ctx.scale(meta.iconScale, meta.iconScale);
+    this.drawCartoonIngredientIcon(ctx, crateType);
+    ctx.restore();
+
+    // Bold Vietnamese Pill Label at the bottom of the medallion
+    const pillY = size - 62;
+    const pillW = 224;
+    const pillH = 46;
+    const pillX = cx - pillW / 2;
+
+    // Pill shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY + 4, pillW, pillH, 23);
+      ctx.fill();
     }
+
+    // Pill background matching accent ring
+    ctx.fillStyle = meta.ring;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillH, 23);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(pillX, pillY, pillW, pillH);
+    }
+
+    // Label Text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 24px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#0f172a';
+    ctx.strokeText(meta.label, cx, pillY + pillH / 2);
+    ctx.fillText(meta.label, cx, pillY + pillH / 2);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -551,41 +626,60 @@ export class TextureGenerator3D {
       ctx.fill();
       ctx.stroke();
     } else if (crateType === 'crate_cheese') {
-      // Triangular Swiss Cheese Wedge with holes
-      ctx.fillStyle = '#facc15';
-      ctx.strokeStyle = '#854d0e';
-      ctx.lineWidth = 6;
+      // 3D Cartoon Swiss Cheese Wedge with Large Holes & Depth
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.beginPath();
-      ctx.moveTo(-42, 18);
-      ctx.lineTo(44, 22);
-      ctx.lineTo(12, -34);
-      ctx.closePath();
+      ctx.ellipse(2, 16, 52, 20, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.stroke();
 
-      // Cheese side depth face
-      ctx.fillStyle = '#eab308';
-      ctx.beginPath();
-      ctx.moveTo(-42, 18);
-      ctx.lineTo(44, 22);
-      ctx.lineTo(44, 38);
-      ctx.lineTo(-42, 34);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Swiss cheese holes
+      // Cheese front thickness face
       ctx.fillStyle = '#ca8a04';
+      ctx.strokeStyle = '#451a03';
+      ctx.lineWidth = 5.5;
+      ctx.beginPath();
+      ctx.moveTo(-42, 6);
+      ctx.lineTo(44, 10);
+      ctx.lineTo(44, 26);
+      ctx.lineTo(-42, 22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Cheese top triangular face
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.moveTo(-42, 6);
+      ctx.lineTo(44, 10);
+      ctx.lineTo(12, -38);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Circular Swiss Cheese Holes with 3D bevels
       const holes = [
-        [-10, 4, 8],
-        [14, 8, 6.5],
-        [4, -12, 6]
+        [-12, -10, 8.5],
+        [16, -6, 7],
+        [6, -24, 6],
+        [-24, -2, 5.5],
+        [32, 6, 5]
       ];
       holes.forEach(([hx, hy, hr]) => {
+        ctx.fillStyle = '#b45309';
         ctx.beginPath();
         ctx.arc(hx, hy, hr, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
       });
+
+      // Highlight sheen
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-32, 4);
+      ctx.lineTo(8, -32);
+      ctx.stroke();
     } else if (crateType === 'crate_mushroom') {
       // Cartoon Mushroom Cap & Stem
       // Stem

@@ -47,17 +47,23 @@ export class InputManager {
         e.preventDefault();
       }
 
+      // Ignore repeat keystrokes or IME composition to prevent key spam and false triggers
+      if (e.repeat || e.isComposing) return;
+
       if (!this.keys[e.code]) {
-        // Just pressed
-        if (e.code === 'KeyE' || e.code === 'Space') {
+        // [Space]: Nhặt / Đặt (Pickup / Drop)
+        if (e.code === 'Space') {
           this.triggerPickupDrop = true;
         }
-        if (e.code === 'KeyF') {
+        // [E] / [F]: Cắt / Nấu / Tác vụ (Action: Chop / Cook / Contextual)
+        if (e.code === 'KeyE' || e.code === 'KeyF') {
           this.triggerAction = true;
         }
+        // [Shift]: Lướt (Dash)
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
           this.triggerDash = true;
         }
+        // [Q] / [Ctrl]: Ném (Throw)
         if (e.code === 'KeyQ' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
           this.triggerThrow = true;
         }
@@ -148,7 +154,7 @@ export class InputManager {
     if (this.keys['KeyD'] || this.keys['ArrowRight']) moveX += 1;
 
     let isPickupDropJust = this.triggerPickupDrop;
-    let isActionPr = Boolean(this.keys['KeyF'] || this.keys['Space']);
+    let isActionPr = Boolean(this.keys['KeyE'] || this.keys['KeyF']);
     let isActionJust = this.triggerAction;
     let isDashJust = this.triggerDash;
     let isThrowJust = this.triggerThrow;
@@ -163,13 +169,20 @@ export class InputManager {
     this.triggerPause = false;
     this.triggerScreenshot = false;
 
-    // 2. Gamepad API
+    // 2. Gamepad API (Strict filtering against Windows phantom HID / keyboard macro devices)
     let gamepadConnectedThisFrame = false;
     if (typeof navigator !== 'undefined' && navigator.getGamepads) {
       const gamepads = navigator.getGamepads();
       for (let i = 0; i < gamepads.length; i++) {
         const gp = gamepads[i];
         if (!gp || !gp.connected) continue;
+
+        // Verify this is a legitimate game controller, not a virtual HID keyboard/mouse or phantom device
+        const isStandard = gp.mapping === 'standard';
+        const hasControllerLayout = Boolean(gp.buttons && gp.buttons.length >= 10 && gp.axes && gp.axes.length >= 2);
+        const name = (gp.id || '').toLowerCase();
+        const isPhantomDevice = name.includes('mouse') || name.includes('keyboard') || name.includes('virtual');
+        if ((!isStandard && !hasControllerLayout) || isPhantomDevice) continue;
 
         gamepadConnectedThisFrame = true;
 

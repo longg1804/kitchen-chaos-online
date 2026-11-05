@@ -814,8 +814,8 @@ export class GameScene3D {
       this.hud.updateContextualActionButton('🧯<br>Phun bọt', '#0ea5e9', true);
       this.hud.updateInteractionPrompt(
         isTouch
-          ? '🧯 Giữ nút <b>[Phun bọt]</b> để chữa cháy &nbsp;•&nbsp; <b>[Cầm/Thả]</b> Đặt bình'
-          : '🧯 Giữ <b>[Space]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[E]</b> Đặt bình xuống bàn',
+          ? '🧯 Giữ nút <b>[Cắt/Nấu]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[Nhặt/Đặt]</b> Đặt bình'
+          : '🧯 Giữ <b>[E]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[Space]</b> Đặt bình xuống bàn',
         '#0ea5e9',
         true
       );
@@ -851,19 +851,19 @@ export class GameScene3D {
       if (active) {
         this.hud.updateInteractionPrompt(
           isTouch
-            ? '🔪 Chạm <b>[Cắt]</b> để sơ chế &nbsp;•&nbsp; <b>[Cầm/Thả]</b> Đặt / Lấy'
-            : '🔪 <b>[Space]</b> Cắt tự động &nbsp;•&nbsp; <b>[E]</b> Đặt / Lấy nguyên liệu',
+            ? '🔪 Chạm <b>[Cắt/Nấu]</b> để cắt &nbsp;•&nbsp; <b>[Nhặt/Đặt]</b> Cầm / Thả'
+            : '🔪 <b>[E]</b> Cắt nguyên liệu &nbsp;•&nbsp; <b>[Space]</b> Nhặt / Đặt',
           '#f97316',
           true
         );
       } else if (c.currentItem && !this.heldItem) {
         this.hud.updateInteractionPrompt(
-          isTouch ? '✋ Chạm <b>[Cầm/Thả]</b> để nhặt nguyên liệu đã cắt' : '✋ <b>[E]</b> Nhặt nguyên liệu đã sơ chế',
+          isTouch ? '✋ Chạm <b>[Nhặt/Đặt]</b> để nhặt nguyên liệu đã cắt' : '✋ <b>[Space]</b> Nhặt nguyên liệu đã sơ chế',
           '#10b981',
           true
         );
       } else {
-        this.hud.updateInteractionPrompt('🔪 Thớt Sơ Chế — Đặt Rau / Cà Chua / Phô Mai để cắt', '#64748b', true);
+        this.hud.updateInteractionPrompt('🔪 Thớt Sơ Chế — Đặt Rau / Cà Chua / Phô Mai để cắt [E]', '#64748b', true);
       }
       return;
     }
@@ -880,14 +880,14 @@ export class GameScene3D {
       if (c.currentItem && !this.heldItem) {
         this.hud.updateInteractionPrompt(
           isTouch
-            ? '🍳 Chạm <b>[Cầm/Thả]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Nấu]</b> Đảo thịt'
-            : '🍳 <b>[E]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Space]</b> Đảo thịt',
+            ? '🍳 Chạm <b>[Cắt/Nấu]</b> Đảo thịt &nbsp;•&nbsp; <b>[Nhặt/Đặt]</b> Nhặt thịt khỏi chảo'
+            : '🍳 <b>[E]</b> Đảo thịt &nbsp;•&nbsp; <b>[Space]</b> Nhặt thịt khỏi chảo',
           '#ea580c',
           true
         );
       } else if (canPlaceAndCook) {
         this.hud.updateInteractionPrompt(
-          isTouch ? '🍳 Chạm <b>[Cầm/Thả]</b> hoặc <b>[Nấu]</b> để đặt thịt lên chảo' : '🍳 <b>[E / Space]</b> Đặt thịt lên chảo nướng',
+          isTouch ? '🍳 Chạm <b>[Cắt/Nấu]</b> hoặc <b>[Nhặt/Đặt]</b> để đặt thịt lên chảo' : '🍳 <b>[E]</b> Đặt & Nấu &nbsp;•&nbsp; <b>[Space]</b> Đặt lên chảo',
           '#ea580c',
           true
         );
@@ -901,7 +901,7 @@ export class GameScene3D {
       // Sink
       this.hud.updateContextualActionButton('💧<br>Rửa', '#0284c7', true);
       this.hud.updateInteractionPrompt(
-        isTouch ? '💧 Chạm <b>[Rửa]</b> tại Bồn Rửa' : '💧 <b>[Space]</b> Rửa đĩa / Tráng tay tại Bồn Rửa',
+        isTouch ? '💧 Chạm <b>[Cắt/Nấu]</b> tại Bồn Rửa' : '💧 <b>[E]</b> Rửa đĩa / Tráng tay tại Bồn Rửa',
         '#0284c7',
         true
       );
@@ -918,8 +918,8 @@ export class GameScene3D {
       this.hud.updateInteractionPrompt(
         canDeliver
           ? isTouch
-            ? '🛎️ Chạm <b>[Giao món]</b> hoặc <b>[Cầm/Thả]</b> để phục vụ!'
-            : '🛎️ <b>[E / Space]</b> Giao Đĩa Món Ăn hoàn chỉnh để nhận điểm!'
+            ? '🛎️ Chạm <b>[Nhặt/Đặt]</b> hoặc <b>[Cắt/Nấu]</b> để phục vụ!'
+            : '🛎️ <b>[Space / E]</b> Giao Đĩa Món Ăn hoàn chỉnh để nhận điểm!'
           : '🛎️ Quầy Giao Món — Hãy cầm Đĩa (🍽️) có món ăn hoàn chỉnh tới đây',
         canDeliver ? '#10b981' : '#64748b',
         true
@@ -932,8 +932,8 @@ export class GameScene3D {
       this.hud.updateInteractionPrompt(
         this.heldItem
           ? isTouch
-            ? '🗑️ Chạm <b>[Cầm/Thả]</b> để bỏ vật phẩm vào Thùng Rác'
-            : '🗑️ <b>[E]</b> Bỏ vật phẩm đang cầm vào Thùng Rác'
+            ? '🗑️ Chạm <b>[Nhặt/Đặt]</b> để bỏ vật phẩm vào Thùng Rác'
+            : '🗑️ <b>[Space]</b> Bỏ vật phẩm đang cầm vào Thùng Rác'
           : '🗑️ Thùng Rác',
         '#ef4444',
         true
@@ -941,8 +941,7 @@ export class GameScene3D {
       return;
     }
 
-    // Ingredient Storage Bin contextual action (PHẦN 2.4 & PHẦN 3):
-    // Strict separation between taking raw ingredients from inside the bin ([E] / Cầm/Thả) and surface items ([Space/F] / Nhặt mặt)!
+    // Ingredient Storage Bin contextual action:
     if (c.type.startsWith('crate_')) {
       const binName = this.getCrateDisplayName(c.type);
       const count = c.surfaceItems.length;
@@ -951,8 +950,8 @@ export class GameScene3D {
         this.hud.updateContextualActionButton('✋<br>Nhặt mặt', '#0ea5e9', true);
         this.hud.updateInteractionPrompt(
           isTouch
-            ? `📦 <b>[Cầm/Thả]</b> Lấy ${binName} &nbsp;•&nbsp; ✋ <b>[Nhặt mặt]</b> Nhặt trên thùng (${count}/6)`
-            : `📦 <b>[E]</b> Lấy ${binName} từ thùng &nbsp;•&nbsp; ✋ <b>[Space / F]</b> Nhặt vật phẩm trên mặt thùng (${count}/6)`,
+            ? `📦 <b>[Nhặt/Đặt]</b> Nhặt đồ trên mặt (${count}/6) &nbsp;•&nbsp; 🔪 <b>[Cắt/Nấu]</b> Lấy ${binName} mới`
+            : `📦 <b>[Space]</b> Nhặt đồ trên mặt (${count}/6) &nbsp;•&nbsp; 🔪 <b>[E]</b> Lấy ${binName} mới từ thùng`,
           '#0ea5e9',
           true
         );
@@ -962,19 +961,19 @@ export class GameScene3D {
         this.hud.updateContextualActionButton('📦<br>Lấy đồ', '#10b981', true);
         this.hud.updateInteractionPrompt(
           isTouch
-            ? `📦 Chạm <b>[Cầm/Thả]</b> để lấy ${binName} từ thùng`
-            : `📦 <b>[E / Space]</b> Lấy ${binName} mới từ trong thùng`,
+            ? `📦 Chạm <b>[Nhặt/Đặt]</b> hoặc <b>[Cắt/Nấu]</b> để lấy ${binName}`
+            : `📦 <b>[Space / E]</b> Lấy ${binName} mới từ trong thùng`,
           '#10b981',
           true
         );
         return;
       }
       if (this.heldItem && count < 6) {
-        this.hud.updateContextualActionButton('🔄<br>Đặt & Lấy', '#0ea5e9', true);
+        this.hud.updateContextualActionButton('📥<br>Đặt mặt', '#0ea5e9', true);
         this.hud.updateInteractionPrompt(
           isTouch
-            ? `📥 <b>[Cầm/Thả]</b> Đặt lên thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Đặt & Lấy]</b> Lấy ${binName}`
-            : `📥 <b>[E]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Space]</b> Đặt lên mặt & Lấy ${binName}`,
+            ? `📥 <b>[Nhặt/Đặt]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔪 <b>[Cắt/Nấu]</b> Lấy ${binName}`
+            : `📥 <b>[Space]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔪 <b>[E]</b> Lấy thêm ${binName}`,
           '#10b981',
           true
         );
@@ -984,8 +983,8 @@ export class GameScene3D {
         this.hud.updateContextualActionButton('📥<br>Đặt cạnh', '#f59e0b', true);
         this.hud.updateInteractionPrompt(
           isTouch
-            ? `📦 Mặt thùng đầy (6/6) — Chạm <b>[Cầm/Thả]</b> đặt sang bàn kế bên`
-            : `📦 Mặt thùng đã đầy (6/6) — <b>[E]</b> Tự động đặt sang bàn trống kế bên`,
+            ? `📦 Mặt thùng đầy (6/6) — Chạm <b>[Nhặt/Đặt]</b> đặt sang bàn kế bên`
+            : `📦 Mặt thùng đã đầy (6/6) — <b>[Space]</b> Tự động đặt sang bàn trống kế bên`,
           '#f59e0b',
           true
         );
@@ -997,19 +996,19 @@ export class GameScene3D {
     this.hud.updateContextualActionButton('🔪<br>Cắt/Nấu', '#475569', false);
     if (!this.heldItem && c.currentItem) {
       this.hud.updateInteractionPrompt(
-        isTouch ? '✋ Chạm <b>[Cầm/Thả]</b> để nhặt vật phẩm trên bàn' : '✋ <b>[E]</b> Nhặt vật phẩm trên mặt bàn',
+        isTouch ? '✋ Chạm <b>[Nhặt/Đặt]</b> để nhặt vật phẩm trên bàn' : '✋ <b>[Space]</b> Nhặt vật phẩm trên mặt bàn',
         '#38bdf8',
         true
       );
     } else if (this.heldItem && !c.currentItem) {
       this.hud.updateInteractionPrompt(
-        isTouch ? '📥 Chạm <b>[Cầm/Thả]</b> để đặt vật phẩm xuống bàn' : '📥 <b>[E]</b> Đặt vật phẩm xuống mặt bàn',
+        isTouch ? '📥 Chạm <b>[Nhặt/Đặt]</b> để đặt vật phẩm xuống bàn' : '📥 <b>[Space]</b> Đặt vật phẩm xuống mặt bàn',
         '#38bdf8',
         true
       );
     } else if (this.heldItem && c.currentItem) {
       this.hud.updateInteractionPrompt(
-        isTouch ? '🍽️ Chạm <b>[Cầm/Thả]</b> để ghép nguyên liệu vào Đĩa' : '🍽️ <b>[E]</b> Ghép nguyên liệu vào Đĩa',
+        isTouch ? '🍽️ Chạm <b>[Nhặt/Đặt]</b> để ghép nguyên liệu vào Đĩa' : '🍽️ <b>[Space]</b> Ghép nguyên liệu vào Đĩa',
         '#10b981',
         true
       );
@@ -1019,7 +1018,23 @@ export class GameScene3D {
   }
 
   private updateKitchenSimulation(delta: number) {
-    // 1. SMART CHOPPING SYSTEM (Continuous Auto-Chop after single tap until completed or player moves!)
+    // 1. SMART CHOPPING SYSTEM (Single tap [E] or hold [E] auto-chops continuously until complete or moved!)
+    if (!this.activeChopCounter && this.currentFacingCounter?.type === CounterType.CUTTING_BOARD) {
+      const fc = this.currentFacingCounter;
+      if (
+        fc.currentItem &&
+        this.isChoppable(fc.currentItem.type) &&
+        (this.currentUnifiedInputs.isActionPressed || this.currentUnifiedInputs.isActionJustPressed || this.hud.inputs.isActionPressed)
+      ) {
+        this.activeChopCounter = fc;
+        fc.isActivelyChopping = true;
+        this.localPlayer.isChopping = true;
+        this.chopEffectTimer = 0.22;
+        this.faceCounter(fc);
+        this.syncPlayerAnim('CHOP', fc.id);
+      }
+    }
+
     if (this.activeChopCounter) {
       const c = this.activeChopCounter;
       const dist = Math.hypot(c.x - this.playerPos.x, c.z - this.playerPos.z);
@@ -1086,10 +1101,10 @@ export class GameScene3D {
       }
     }
 
-    // 2.5. FIRE EXTINGUISHER SPRAY SYSTEM (Hold [Space/F] or Hold Mobile Contextual Button while holding extinguisher)
+    // 2.5. FIRE EXTINGUISHER SPRAY SYSTEM (Hold [E/F] or Hold Mobile Contextual Button while holding extinguisher)
     const isSpraying =
       this.heldItem?.type === IngredientType.FIRE_EXTINGUISHER &&
-      (this.currentUnifiedInputs.isActionPressed || this.keys['Space'] || this.hud.inputs.isActionPressed);
+      (this.currentUnifiedInputs.isActionPressed || this.keys['KeyE'] || this.keys['KeyF'] || this.hud.inputs.isActionPressed);
 
     if (isSpraying) {
       this.sprayEffectTimer += delta;
@@ -1437,38 +1452,12 @@ export class GameScene3D {
       return;
     }
 
-    // 2.5. INGREDIENT STORAGE BIN SMART ACTION ([Space / F]):
-    // - Empty hands + items on top surface -> Picks up the nearest item sitting on top of the bin!
-    // - Holding item + free slot on top (< 6) -> Places held item onto bin top surface AND dispenses fresh ingredient from bin!
-    // - Empty hands + top surface empty -> Dispenses fresh ingredient from bin!
+    // 2.5. INGREDIENT STORAGE BIN ACTION ([E] / Contextual Action):
+    // Dedicated action button [E] ALWAYS dispenses a fresh raw ingredient directly from the drawer inside!
+    // This ensures players can always pull fresh ingredients even when up to 6 items are sitting on top!
     if (counter.type.startsWith('crate_')) {
       this.faceCounter(counter);
-      if (!this.heldItem && counter.surfaceItems.length > 0) {
-        const pickIdx = this.map.getNearestSurfaceItemIndex(
-          counter,
-          this.playerPos.x + this.facingDir.x * 0.45,
-          this.playerPos.z + this.facingDir.z * 0.45
-        );
-        const [picked] = counter.surfaceItems.splice(pickIdx >= 0 ? pickIdx : counter.surfaceItems.length - 1, 1);
-        this.map.rebuildSurfaceMeshes(counter);
-        this.setHeldItem(picked);
-        this.localPlayer.playOneShot('PICKUP');
-        this.syncPlayerAnim('PICKUP');
-        this.map.triggerCounterBounce(counter.id);
-        this.sound.playPickup();
-        this.broadcastCounterUpdate(counter);
-        return;
-      }
-      if (this.heldItem && counter.surfaceItems.length < 6) {
-        // Place held item onto flat top surface AND immediately dispense fresh raw ingredient from inside bin!
-        counter.surfaceItems.push(this.heldItem);
-        const addedIdx = counter.surfaceItems.length - 1;
-        this.map.rebuildSurfaceMeshes(counter, addedIdx);
-        this.dispenseFromCrate(counter);
-        this.broadcastCounterUpdate(counter);
-        return;
-      }
-      this.handlePickupDrop();
+      this.dispenseFromCrate(counter);
       return;
     }
 
@@ -1589,9 +1578,28 @@ export class GameScene3D {
         return;
       }
 
-      // CASE A: Player's hands are EMPTY -> ALWAYS dispense a fresh raw ingredient from inside the storage bin!
-      // Having 1, 2, 3, 4, 5, or 6 items on top of the bin NEVER blocks taking raw ingredients!
+      // CASE A: Player's hands are EMPTY:
+      // - If items are resting on top of the storage bin surface, pick up the top item!
+      // - If the surface is empty, dispense a fresh raw ingredient from the drawer inside!
       if (!this.heldItem) {
+        if (counter.surfaceItems.length > 0) {
+          const pickIdx = this.map.getNearestSurfaceItemIndex(
+            counter,
+            this.playerPos.x + this.facingDir.x * 0.45,
+            this.playerPos.z + this.facingDir.z * 0.45
+          );
+          const [picked] = counter.surfaceItems.splice(pickIdx >= 0 ? pickIdx : counter.surfaceItems.length - 1, 1);
+          this.map.rebuildSurfaceMeshes(counter);
+          this.setHeldItem(picked);
+          this.localPlayer.playOneShot('PICKUP');
+          this.syncPlayerAnim('PICKUP');
+          this.map.triggerCounterBounce(counter.id);
+          this.sound.playPickup();
+          this.broadcastCounterUpdate(counter);
+          return;
+        }
+
+        // Top surface is empty -> dispense fresh ingredient from crate drawer
         this.dispenseFromCrate(counter);
         return;
       }
