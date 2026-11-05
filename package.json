@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "description": "Multiplayer Cooperative Cooking Web Game inspired by Overcooked",
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
+    "install:all": "npm --prefix server install --include=dev && npm --prefix client install --include=dev",
     "dev:client": "npm --prefix client run dev",
     "build:client": "npm --prefix client run build",
     "dev:server": "npm --prefix server run dev",
     "build:server": "npm --prefix server run build",
     "start:server": "npm --prefix server run start",
-    "build": "npm run build:server && npm run build:client",
+    "build": "npm --prefix server install && npm --prefix client install && npm run build:server && npm run build:client",
     "start": "npm --prefix server run start",
     "push": "cmd /c push.bat",
     "dev": "npm run dev:client"
