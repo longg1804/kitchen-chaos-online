@@ -1,0 +1,23 @@
+{
+  "name": "kitchen-chaos-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multiplayer Cooperative Cooking Web Game inspired by Overcooked",
+  "scripts": {
+    "dev:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
+    "dev:server": "npm --prefix server run dev",
+    "build:server": "npm --prefix server run build",
+    "start:server": "npm --prefix server run start",
+    "build": "npm run build:server && npm run build:client",
+    "dev": "npm run dev:client"
+  },
+  "keywords": [
+    "game",
+    "multiplayer",
+    "phaser",
+    "colyseus",
+    "typescript",
+    "mobile-game"
+  ]
+}
