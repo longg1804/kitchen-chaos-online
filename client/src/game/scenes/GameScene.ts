@@ -7,6 +7,7 @@ import { MobileControls } from '../../controls/MobileControls';
 import { RecipeManager } from '../recipes/RecipeManager';
 import { SoundManager } from '../systems/SoundManager';
 import { NetworkManager } from '../../multiplayer/NetworkManager';
+import { GameScene3D } from '../../game3d/scenes/GameScene3D';
 
 interface RemoteChef {
   container: Phaser.GameObjects.Container;
@@ -20,6 +21,7 @@ interface RemoteChef {
 export class GameScene extends Phaser.Scene {
   public isMultiplayer = false;
   private network = NetworkManager.getInstance();
+  private gameScene3D?: GameScene3D;
 
   private player!: Player;
   private counters: KitchenCounter[] = [];
@@ -71,38 +73,49 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // 1. Generate procedural graphic textures
+    // 1. Hide 2D Phaser Canvas and launch 3D Three.js Isometric Engine
+    if (this.game.canvas) {
+      this.game.canvas.style.display = 'none';
+    }
+
+    const container = document.getElementById('game-container') || document.body;
+    this.gameScene3D = new GameScene3D(container, {
+      isMultiplayer: this.isMultiplayer,
+      roomCode: this.currentRoomCode,
+      mapId: this.currentMap,
+      skin: this.currentSkin,
+      playerName: localStorage.getItem('kitchen_chaos_player_name') || 'Đầu Bếp',
+      onExit: () => {
+        if (this.game.canvas) {
+          this.game.canvas.style.display = 'block';
+        }
+        this.network.leaveRoom();
+        this.scene.start('LobbyScene');
+      }
+    });
+
+    this.events.once('shutdown', () => {
+      this.gameScene3D?.destroy();
+      this.gameScene3D = undefined;
+      if (this.game.canvas) {
+        this.game.canvas.style.display = 'block';
+      }
+    });
+
+    // Fallback/Legacy 2D systems initialized for safety
     AssetGenerator.generateAll(this);
-
-    // 2. Build Kitchen Layout according to chosen map
     this.createKitchenMap();
-
-    // 3. Initialize Recipe and Sound systems
     this.recipeManager = new RecipeManager();
     const sound = SoundManager.getInstance();
-
-    // 4. Create Local Player Chef with selected skin
     this.player = new Player(this, 540, 278, this.currentSkin);
-
-    // Physics Colliders: Player vs Counters
     this.physics.add.collider(this.player.sprite, this.counterGroup);
-
-    // 5. Input Controls Setup
     this.setupDesktopInputs();
     this.mobileControls = new MobileControls(this);
-
-    // 6. Setup HUD UI
     this.setupHUD();
 
-    // 7. Setup Multiplayer Listeners if online
     if (this.isMultiplayer && this.network.room) {
       this.setupMultiplayerSync();
     }
-
-    // Trigger audio init on click
-    this.input.once('pointerdown', () => {
-      sound.init();
-    });
   }
 
   private setupMultiplayerSync() {
@@ -456,6 +469,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    if (this.gameScene3D) {
+      return;
+    }
+
     if (this.isGameOver) return;
     const deltaSeconds = delta / 1000;
 

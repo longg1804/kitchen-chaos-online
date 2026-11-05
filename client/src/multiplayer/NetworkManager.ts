@@ -5,6 +5,7 @@ export class NetworkManager {
   public client: Client;
   public room: Room | null = null;
   public mySessionId: string = '';
+  public isHost: boolean = false;
 
   private constructor() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -38,6 +39,7 @@ export class NetworkManager {
     const roomCode = this.generateRoomCode();
     this.room = await this.client.create('kitchen_room', { roomCode, name: playerName });
     this.mySessionId = this.room.sessionId;
+    this.isHost = true;
     return this.room;
   }
 
@@ -77,6 +79,7 @@ export class NetworkManager {
       this.room.leave();
       this.room = null;
       this.mySessionId = '';
+      this.isHost = false;
     }
   }
 
