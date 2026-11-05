@@ -421,13 +421,54 @@ export class GameScene3D {
     room.onMessage('score_update', handleScoreSync);
 
     room.onMessage('remote_orders_update', (data: { orders: any[] }) => {
-      this.hud.updateOrders(data.orders);
+      if (data && Array.isArray(data.orders)) {
+        this.recipeManager.setOrders(data.orders);
+        this.hud.updateOrders(data.orders);
+      }
     });
     room.onMessage('orders_update', (orders: any[]) => {
       if (Array.isArray(orders)) {
+        this.recipeManager.setOrders(orders);
         this.hud.updateOrders(orders);
       }
     });
+
+    // 6. Authoritative Timer & Snapshot Reconcile
+    room.onMessage('timer_sync', (data: { matchTimeRemaining: number; score: number; combo: number }) => {
+      if (data.matchTimeRemaining !== undefined) {
+        this.matchTimeRemaining = data.matchTimeRemaining;
+      }
+      if (data.score !== undefined) {
+        this.recipeManager.score = data.score;
+      }
+      if (data.combo !== undefined) {
+        this.recipeManager.combo = data.combo;
+      }
+    });
+
+    room.onMessage('counter_reconcile', (data: any) => {
+      handleCounterSync(data);
+      this.hud.showFloatingPopup('⚠️ Thao tác bị trùng lặp với người chơi khác!', '#f59e0b');
+    });
+
+    room.onMessage('host_migrated', (data: { newHostId: string }) => {
+      if (data.newHostId === this.network.mySessionId) {
+        this.network.isHost = true;
+        this.hud.showFloatingPopup('👑 Bạn hiện là Chủ Phòng (Host)!', '#fbbf24');
+      }
+    });
+
+    room.onMessage('remote_player_leave', (data: { id: string }) => {
+      const r = this.remotePlayers.get(data.id);
+      if (r) {
+        this.scene.remove(r.chef.group);
+        if (r.heldMesh) r.chef.handAnchor.remove(r.heldMesh);
+        this.remotePlayers.delete(data.id);
+      }
+    });
+
+    // Request full state snapshot if joining mid-game
+    room.send('request_room_sync');
   }
 
   private renderLoop(currentTime: number) {

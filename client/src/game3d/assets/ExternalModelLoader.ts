@@ -55,6 +55,8 @@ export class ExternalModelLoader {
     SUSHI_SALMON: '/models/food/sushi-salmon.glb',
     ONION_WHOLE: '/models/food/onion.glb',
     ONION_HALF: '/models/food/onion-half.glb',
+    MUSHROOM_WHOLE: '/models/food/mushroom.glb',
+    MUSHROOM_HALF: '/models/food/mushroom-half.glb',
     FRIES: '/models/food/fries.glb',
     EGG_WHOLE: '/models/food/egg.glb',
     EGG_COOKED: '/models/food/egg-cooked.glb',

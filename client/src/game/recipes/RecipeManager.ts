@@ -101,6 +101,25 @@ export class RecipeManager {
     return this.activeOrders;
   }
 
+  public setOrders(orders: OrderRecipe[]) {
+    if (!Array.isArray(orders)) return;
+    this.activeOrders = orders.map((o) => ({
+      id: o.id,
+      name: o.name,
+      requiredIngredients: Array.isArray(o.requiredIngredients) ? [...o.requiredIngredients] : [],
+      maxTime: o.maxTime || 120,
+      remainingTime: o.remainingTime ?? o.maxTime ?? 120,
+      rewardPoints: o.rewardPoints || 80,
+      iconTexture: o.iconTexture || 'item_burger'
+    }));
+  }
+
+  public tickClientTimersOnly(deltaSeconds: number) {
+    for (let i = 0; i < this.activeOrders.length; i++) {
+      this.activeOrders[i].remainingTime -= deltaSeconds;
+    }
+  }
+
   public tryDeliver(plateItem: KitchenItem): { success: boolean; pointsEarned: number } {
     if (plateItem.type !== IngredientType.PLATE || !plateItem.plateContents) {
       return { success: false, pointsEarned: 0 };
@@ -124,6 +143,10 @@ export class RecipeManager {
       }
     }
 
-    return { success: false, pointsEarned: 0 };
+    // Wrong recipe penalty: reset combo to 1x and deduct wrongDeliveryPenalty
+    const penalty = OrderConfig.wrongDeliveryPenalty;
+    this.score = Math.max(0, this.score - penalty);
+    this.combo = 1;
+    return { success: false, pointsEarned: -penalty };
   }
 }

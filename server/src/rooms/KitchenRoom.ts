@@ -9,8 +9,11 @@ export class KitchenRoom extends Room<KitchenRoomState> {
   maxClients = 4;
   private spawnInterval = OrderConfig.spawnIntervalSeconds;
   private timeSinceSpawn = 0;
+  private timerSyncAccum = 0;
   private orderCounter = 0;
   private currentMapId = 'traditional';
+  private counters3d = new Map<string, any>();
+  private heldItems3d = new Map<string, any>();
 
   // Expanded Recipe Catalog (Phase 3)
   private recipes = [
@@ -75,18 +78,41 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         this.state.matchTimeRemaining = 180;
         this.state.score = 0;
         this.state.combo = 1;
+        this.state.orders.clear();
+        this.counters3d.clear();
+        this.heldItems3d.clear();
 
         this.spawnOrder();
         this.spawnOrder();
 
         const playersList = this.getPlayerListData();
+        const ordersList = this.getOrdersListData();
 
         this.broadcast('game_started', {
           roomCode: this.state.roomCode,
           mapId: this.currentMapId,
-          players: playersList
+          players: playersList,
+          orders: ordersList,
+          score: this.state.score,
+          combo: this.state.combo,
+          matchTimeRemaining: this.state.matchTimeRemaining
         });
       }
+    });
+
+    this.onMessage('request_room_sync', (client) => {
+      client.send('room_state_snapshot', {
+        roomCode: this.state.roomCode,
+        mapId: this.currentMapId,
+        gameState: this.state.gameState,
+        matchTimeRemaining: this.state.matchTimeRemaining,
+        score: this.state.score,
+        combo: this.state.combo,
+        orders: this.getOrdersListData(),
+        players: this.getPlayerListData(),
+        counters: Array.from(this.counters3d.values()),
+        heldItems: Array.from(this.heldItems3d.entries()).map(([id, item]) => ({ id, item }))
+      });
     });
 
     this.onMessage('player_move', (client, data: { x: number; y: number; facingX: number; facingY: number }) => {
@@ -140,6 +166,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     });
 
     this.onMessage('held_update', (client, data: { item: any }) => {
+      this.heldItems3d.set(client.sessionId, data.item ?? null);
       this.broadcast('remote_held_update', {
         id: client.sessionId,
         item: data.item
@@ -159,6 +186,24 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     });
 
     this.onMessage('counter_update', (client, data: any) => {
+      if (!data || !data.id) return;
+      const now = Date.now();
+      const prev3d = this.counters3d.get(data.id);
+
+      // Authoritative conflict check: if two different players try to pick up the same item within 180ms,
+      // reject the second player's duplicate pickup and reconcile their state!
+      if (
+        prev3d &&
+        prev3d.item === null &&
+        data.item === null &&
+        prev3d.lastActorId &&
+        prev3d.lastActorId !== client.sessionId &&
+        now - (prev3d.updatedAt || 0) < 180
+      ) {
+        client.send('counter_reconcile', prev3d);
+        return;
+      }
+
       const counter = this.state.counters.get(data.id);
       if (counter) {
         if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
@@ -175,6 +220,13 @@ export class KitchenRoom extends Room<KitchenRoomState> {
           counter.item = null;
         }
       }
+
+      this.counters3d.set(data.id, {
+        ...data,
+        lastActorId: client.sessionId,
+        updatedAt: now
+      });
+
       // Broadcast authoritative counter update (including cookTimer, burnTimer, stoveState, surfaceItems) to all other clients
       this.broadcast('remote_counter_update', data, { except: client });
     });
@@ -204,6 +256,19 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     });
 
     this.onMessage('orders_update', (client, data: { orders: any[] }) => {
+      if (data && Array.isArray(data.orders)) {
+        this.state.orders.clear();
+        for (const o of data.orders) {
+          const ord = new OrderState();
+          ord.id = o.id;
+          ord.name = o.name;
+          ord.remainingTime = o.remainingTime;
+          ord.maxTime = o.maxTime;
+          ord.rewardPoints = o.rewardPoints;
+          ord.requiredIngredients = new ArraySchema<string>(...(o.requiredIngredients || []));
+          this.state.orders.push(ord);
+        }
+      }
       this.broadcast('remote_orders_update', data, { except: client });
     });
 
@@ -423,8 +488,8 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     this.broadcastOrders();
   }
 
-  private broadcastOrders() {
-    const list = this.state.orders.map(o => ({
+  private getOrdersListData() {
+    return this.state.orders.map(o => ({
       id: o.id,
       name: o.name,
       remainingTime: o.remainingTime,
@@ -432,7 +497,12 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       rewardPoints: o.rewardPoints,
       requiredIngredients: [...o.requiredIngredients]
     }));
+  }
+
+  private broadcastOrders() {
+    const list = this.getOrdersListData();
     this.broadcast('orders_update', list);
+    this.broadcast('remote_orders_update', { orders: list });
   }
 
   update(deltaSeconds: number) {
@@ -444,6 +514,16 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       this.state.gameState = 'GAME_OVER';
       this.broadcast('game_over', { finalScore: this.state.score });
       return;
+    }
+
+    this.timerSyncAccum += deltaSeconds;
+    if (this.timerSyncAccum >= 1.0) {
+      this.timerSyncAccum = 0;
+      this.broadcast('timer_sync', {
+        matchTimeRemaining: this.state.matchTimeRemaining,
+        score: this.state.score,
+        combo: this.state.combo
+      });
     }
 
     let orderChanged = false;
@@ -539,11 +619,12 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     player.name = options.name || `Chef ${this.state.players.size + 1}`;
     player.color = CHEF_COLORS[this.state.players.size % CHEF_COLORS.length];
 
+    // 3D Kitchen open-aisle spawn coordinates (x, z stored in x, y)
     const spawnOffsets = [
-      { x: 540, y: 278 },
-      { x: 740, y: 278 },
-      { x: 540, y: 460 },
-      { x: 740, y: 460 }
+      { x: -1.1, y: 1.0 },
+      { x: 1.1, y: 1.0 },
+      { x: -1.1, y: 1.85 },
+      { x: 1.1, y: 1.85 }
     ];
     const spot = spawnOffsets[this.state.players.size % spawnOffsets.length];
     player.x = spot.x;
@@ -563,6 +644,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
     const wasHost = player?.isHost;
 
     this.state.players.delete(client.sessionId);
+    this.heldItems3d.delete(client.sessionId);
     console.log(`[KitchenRoom] Player ${client.sessionId} left room ${this.state.roomCode}`);
 
     if (wasHost && this.state.players.size > 0) {
@@ -570,6 +652,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       if (nextHost) {
         nextHost.isHost = true;
         nextHost.isReady = true;
+        this.broadcast('host_migrated', { newHostId: nextHost.id });
       }
     }
 

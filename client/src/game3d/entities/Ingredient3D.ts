@@ -131,6 +131,12 @@ export class Ingredient3DFactory {
       case IngredientType.SLICED_ONION:
         this.buildOnion(group, true);
         break;
+      case IngredientType.MUSHROOM:
+        this.buildMushroom(group, false);
+        break;
+      case IngredientType.SLICED_MUSHROOM:
+        this.buildMushroom(group, true);
+        break;
       case IngredientType.POTATO:
         this.buildPotato(group, false);
         break;
@@ -676,6 +682,24 @@ export class Ingredient3DFactory {
       group,
       isChopped ? ExternalModelLoader.PATHS.ONION_HALF : ExternalModelLoader.PATHS.ONION_WHOLE,
       { targetWidth: 0.46 },
+      fallback
+    );
+  }
+
+  // 10.5. CARTOON MUSHROOM (mushroom.glb / mushroom-half.glb)
+  private static buildMushroom(group: THREE.Group, isChopped: boolean) {
+    const fallback = new THREE.Group();
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.14, 12), this.boneMat);
+    stem.position.y = 0.07;
+    fallback.add(stem);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12, 0, Math.PI * 2, 0, Math.PI / 1.8), this.potatoMat);
+    cap.position.y = 0.14;
+    fallback.add(cap);
+
+    ExternalModelLoader.attachModel(
+      group,
+      isChopped ? ExternalModelLoader.PATHS.MUSHROOM_HALF : ExternalModelLoader.PATHS.MUSHROOM_WHOLE,
+      { targetWidth: 0.42 },
       fallback
     );
   }

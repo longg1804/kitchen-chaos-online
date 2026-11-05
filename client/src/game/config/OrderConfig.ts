@@ -50,8 +50,9 @@ export const OrderConfig = {
   spawnIntervalSeconds: 20,
   maxConcurrentOrders: 3,
 
-  /** Score penalty when an order fully expires (after grace). */
-  expirePenalty: 30
+  /** Score penalty when an order fully expires (after grace) or when a wrong dish is delivered. */
+  expirePenalty: 30,
+  wrongDeliveryPenalty: 20
 };
 
 const CHOP_TYPES = new Set<string>([

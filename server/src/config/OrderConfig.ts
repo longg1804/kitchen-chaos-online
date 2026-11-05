@@ -21,7 +21,8 @@ export const OrderConfig = {
   expireGraceSeconds: 6,
   spawnIntervalSeconds: 20,
   maxConcurrentOrders: 3,
-  expirePenalty: 30
+  expirePenalty: 30,
+  wrongDeliveryPenalty: 20
 };
 
 const CHOP_TYPES = new Set(['chopped_lettuce', 'sliced_tomato', 'sliced_cheese', 'sliced_onion', 'chopped_potato']);

@@ -17,6 +17,8 @@ export enum IngredientType {
   COOKED_SHRIMP = 'cooked_shrimp',
   ONION = 'onion',
   SLICED_ONION = 'sliced_onion',
+  MUSHROOM = 'mushroom',
+  SLICED_MUSHROOM = 'sliced_mushroom',
   POTATO = 'potato',
   CHOPPED_POTATO = 'chopped_potato',
   EGG = 'egg',
