@@ -35,7 +35,13 @@ export class HUDOverlay3D {
   private lastScore = 0;
   private orderCardEls: Map<
     string,
-    { card: HTMLElement; fill: HTMLElement; timeLabel: HTMLElement }
+    {
+      wrapper: HTMLElement;
+      topSquare: HTMLElement;
+      fill: HTMLElement;
+      lastRatio: number;
+      removing?: boolean;
+    }
   > = new Map();
   private onExitCallback: () => void;
   private onScreenshotCallback?: () => void;
@@ -80,8 +86,8 @@ export class HUDOverlay3D {
     style.id = 'hud-3d-keyframes';
     style.textContent = `
       @keyframes hudOrderEnter {
-        0% { opacity: 0; transform: translateY(-24px) scale(0.88); }
-        70% { opacity: 1; transform: translateY(3px) scale(1.03); }
+        0% { opacity: 0; transform: translateY(-32px) scale(0.86); }
+        70% { opacity: 1; transform: translateY(4px) scale(1.03); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes hudTimerPulse {
@@ -89,8 +95,14 @@ export class HUDOverlay3D {
         50% { transform: scale(1.06); box-shadow: 0 0 22px rgba(239, 68, 68, 0.75); }
       }
       @keyframes hudUrgentCard {
-        0%, 100% { border-color: #ef4444; }
-        50% { border-color: #fca5a5; }
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
+      }
+      @keyframes hudGoldenTicketFly {
+        0% { transform: scale(1.08) rotate(0deg); opacity: 1; }
+        35% { transform: scale(1.16) rotate(-14deg) translate(-8px, -6px); opacity: 1; }
+        100% { transform: scale(0.75) rotate(-24deg) translate(-90px, -65px); opacity: 0; }
       }
     `;
     document.head.appendChild(style);
@@ -256,163 +268,371 @@ export class HUDOverlay3D {
     this.promptEl.style.transform = 'translateX(-50%) translateY(0)';
   }
 
+  /**
+   * Overcooked! All You Can Eat 2-Tier Hanging Order Tickets (Matches Reference Images 2 & 3!)
+   * - Tier 1 (Top Square Card): Beveled White/Grey Paper Frame + Recessed Top Timer Bar + Top-Down Circular Dish Illustration
+   * - Tier 2 (Bottom Hanging Strips): Vertical Light-Blue Ingredient Tags (#a8d0e6) with White Circle Ingredient Icon
+   *   and Solid-Black Prep Tool Silhouette Icon (Frying Pan 🍳 or Chopping Knife 🔪) at the bottom!
+   * - Golden Ticket Fly-Off Animation when an order is completed!
+   */
   public updateOrders(orders: OrderRecipe[]) {
     const activeIds = new Set(orders.map((o) => o.id));
 
-    // Remove expired or completed order cards
+    // Handle removed orders: if completed while time remained, play Golden Ticket Fly-Off animation!
     for (const [id, entry] of this.orderCardEls.entries()) {
-      if (!activeIds.has(id)) {
-        if (entry.card.parentNode) {
-          entry.card.parentNode.removeChild(entry.card);
+      if (!activeIds.has(id) && !entry.removing) {
+        if (entry.lastRatio > 0.04) {
+          entry.removing = true;
+          // Transform top square into Overcooked Golden Crown Ticket (Matches Reference Image 2!)
+          entry.topSquare.style.background = 'linear-gradient(135deg, #fef08a 0%, #eab308 55%, #ca8a04 100%)';
+          entry.topSquare.style.borderColor = '#fde047';
+          entry.topSquare.style.boxShadow = '0 0 22px rgba(250, 204, 21, 0.9), 0 6px 16px rgba(0,0,0,0.45)';
+          entry.fill.style.background = '#ec4899'; // Vibrant magenta bar on Golden Ticket
+          entry.wrapper.style.animation = 'hudGoldenTicketFly 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards';
+          setTimeout(() => {
+            if (entry.wrapper.parentNode) {
+              entry.wrapper.parentNode.removeChild(entry.wrapper);
+            }
+            this.orderCardEls.delete(id);
+          }, 550);
+        } else {
+          if (entry.wrapper.parentNode) {
+            entry.wrapper.parentNode.removeChild(entry.wrapper);
+          }
+          this.orderCardEls.delete(id);
         }
-        this.orderCardEls.delete(id);
       }
     }
 
     orders.forEach((order) => {
       let entry = this.orderCardEls.get(order.id);
       const ratio = Math.max(0, Math.min(1, order.remainingTime / order.maxTime));
-      const barColor = ratio > 0.45 ? '#10b981' : ratio > 0.22 ? '#f59e0b' : '#ef4444';
+      const barColor = ratio > 0.48 ? '#65a30d' : ratio > 0.24 ? '#eab308' : '#ef4444';
 
       if (!entry) {
-        const card = document.createElement('div');
-        card.style.cssText = `
-          background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.93) 100%);
-          border: 2px solid #38bdf8;
-          border-radius: 14px;
-          padding: 7px 11px;
-          min-width: 154px;
-          backdrop-filter: blur(8px);
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.48);
+        const stripCount = order.requiredIngredients.length;
+        const cardWidth = Math.max(88, stripCount * 32 + (stripCount - 1) * 3);
+
+        // Outer Wrapper holding Top Dish Square + Bottom Hanging Light-Blue Ingredient Strips
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = `
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
+          align-items: stretch;
+          width: ${cardWidth}px;
+          filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.42));
           animation: hudOrderEnter 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          user-select: none;
         `;
 
-        // Top Row: Dish Icon Medallion + Recipe Name + Points Badge
-        const header = document.createElement('div');
-        header.style.cssText = `
+        // 1. TOP SQUARE CARD (White/Light-Grey Beveled Ticket Frame with Top Timer Bar & Center Dish Plate)
+        const topSquare = document.createElement('div');
+        topSquare.style.cssText = `
+          position: relative;
+          background: linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 86%, #f8fafc 100%);
+          border: 3px solid #f1f5f9;
+          border-bottom: 4px solid #f8fafc;
+          border-radius: 4px 4px 2px 2px;
+          height: 82px;
           display: flex;
-          justify-content: space-between;
+          flex-direction: column;
           align-items: center;
-          gap: 6px;
-          margin-bottom: 5px;
-        `;
-        const dishIcon = this.getDishIllustrationEmoji(order);
-        header.innerHTML = `
-          <div style="display:flex;align-items:center;gap:5px;">
-            <span style="font-size:16px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4));">${dishIcon}</span>
-            <span style="font-weight:900;font-size:12px;color:#f8fafc;white-space:nowrap;">${order.name}</span>
-          </div>
-          <span style="background:rgba(251,191,36,0.18);border:1px solid #fbbf24;border-radius:999px;padding:1px 6px;font-weight:900;font-size:11px;color:#fbbf24;">+${order.rewardPoints}đ</span>
-        `;
-        card.appendChild(header);
-
-        // Middle Row: Ingredient Step Badges (shows ingredient + required action icon 🔪/🍳)
-        const chips = document.createElement('div');
-        chips.style.cssText = 'display: flex; gap: 4px; flex-wrap: nowrap; margin-bottom: 6px;';
-        order.requiredIngredients.forEach((ing) => {
-          const badgeInfo = this.getIngredientStepBadge(ing);
-          const chip = document.createElement('div');
-          chip.style.cssText = `
-            background: #0f172a;
-            border: 1px solid ${badgeInfo.border};
-            border-radius: 7px;
-            padding: 2px 5px;
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            font-size: 12px;
-            line-height: 1;
-          `;
-          chip.innerHTML = `<span>${badgeInfo.icon}</span>${
-            badgeInfo.stepIcon
-              ? `<span style="font-size:9px;opacity:0.9;">${badgeInfo.stepIcon}</span>`
-              : ''
-          }`;
-          chips.appendChild(chip);
-        });
-        card.appendChild(chips);
-
-        // Bottom Row: Countdown Progress Bar + Seconds Remaining
-        const footer = document.createElement('div');
-        footer.style.cssText = 'display:flex;align-items:center;gap:6px;';
-
-        const progressBg = document.createElement('div');
-        progressBg.style.cssText = `
-          flex: 1;
-          height: 5px;
-          background: #1e293b;
-          border-radius: 999px;
+          justify-content: space-between;
+          padding: 0 5px 4px 5px;
+          box-sizing: border-box;
           overflow: hidden;
         `;
+
+        // Top Recessed Timer Slot (Matches Reference Images 2 & 3!)
+        const timerSlot = document.createElement('div');
+        timerSlot.style.cssText = `
+          width: calc(100% - 4px);
+          height: 11px;
+          background: #525b66;
+          border-left: 2px solid #f8fafc;
+          border-right: 2px solid #f8fafc;
+          border-bottom: 2px solid #94a3b8;
+          position: relative;
+          overflow: hidden;
+        `;
+
         const progressFill = document.createElement('div');
         progressFill.style.cssText = `
           width: ${ratio * 100}%;
           height: 100%;
           background: ${barColor};
-          border-radius: 999px;
+          border-right: 2.5px solid #ffffff;
+          box-sizing: border-box;
           transition: width 0.15s linear, background-color 0.25s ease;
         `;
-        progressBg.appendChild(progressFill);
+        timerSlot.appendChild(progressFill);
+        topSquare.appendChild(timerSlot);
 
-        const timeLabel = document.createElement('span');
-        timeLabel.style.cssText = 'font-size:10px;font-weight:800;color:#94a3b8;min-width:22px;text-align:right;';
-        timeLabel.innerText = `${Math.ceil(order.remainingTime)}s`;
+        // Center Top-Down Circular Dish Illustration
+        const dishBox = document.createElement('div');
+        dishBox.style.cssText = `
+          width: 60px;
+          height: 60px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-top: 1px;
+        `;
+        dishBox.innerHTML = this.getDishPlateSVG(order);
+        topSquare.appendChild(dishBox);
 
-        footer.appendChild(progressBg);
-        footer.appendChild(timeLabel);
-        card.appendChild(footer);
+        wrapper.appendChild(topSquare);
 
-        this.ordersContainer.appendChild(card);
-        entry = { card, fill: progressFill, timeLabel };
+        // 2. BOTTOM HANGING LIGHT-BLUE INGREDIENT STRIPS (Matches Reference Images 2 & 3!)
+        const stripsRow = document.createElement('div');
+        stripsRow.style.cssText = `
+          display: flex;
+          flex-direction: row;
+          justify-content: center;
+          align-items: flex-start;
+          gap: 3px;
+          padding: 0 2px;
+        `;
+
+        order.requiredIngredients.forEach((ing) => {
+          const toolSvg = this.getPrepToolBlackSVG(ing);
+          const hasPrep = toolSvg !== '';
+          const strip = document.createElement('div');
+          strip.style.cssText = `
+            flex: 1;
+            min-width: 28px;
+            height: ${hasPrep ? '58px' : '36px'};
+            background: linear-gradient(180deg, #9ecae3 0%, #b5d8ec 100%);
+            border: 1.5px solid #7eaac4;
+            border-top: 2px solid #6b95b0;
+            border-radius: 0 0 5px 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 2px 4px 2px;
+            box-sizing: border-box;
+            box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.14);
+          `;
+
+          // White Circular Ingredient Icon at Top of Strip
+          const ingCircle = document.createElement('div');
+          ingCircle.style.cssText = `
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+          `;
+          ingCircle.innerHTML = this.getRawIngredientSVG(ing);
+          strip.appendChild(ingCircle);
+
+          // Black Silhouette Tool Icon at Bottom of Strip (if cooking/chopping is required!)
+          if (hasPrep) {
+            const toolBox = document.createElement('div');
+            toolBox.style.cssText = `
+              width: 22px;
+              height: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            `;
+            toolBox.innerHTML = toolSvg;
+            strip.appendChild(toolBox);
+          }
+
+          stripsRow.appendChild(strip);
+        });
+
+        wrapper.appendChild(stripsRow);
+        this.ordersContainer.appendChild(wrapper);
+
+        entry = { wrapper, topSquare, fill: progressFill, lastRatio: ratio };
         this.orderCardEls.set(order.id, entry);
       }
 
+      if (entry.removing) return;
+
       // Update live bar width, color & urgency animation without recreating DOM
+      entry.lastRatio = ratio;
       entry.fill.style.width = `${ratio * 100}%`;
       entry.fill.style.background = barColor;
-      entry.timeLabel.innerText = `${Math.max(0, Math.ceil(order.remainingTime))}s`;
       if (ratio <= 0.22) {
-        entry.card.style.borderColor = '#ef4444';
-        entry.card.style.animation = 'hudUrgentCard 0.6s infinite';
-        entry.timeLabel.style.color = '#f87171';
-      } else if (ratio <= 0.45) {
-        entry.card.style.borderColor = '#f59e0b';
-        entry.card.style.animation = 'none';
-        entry.timeLabel.style.color = '#fbbf24';
+        entry.topSquare.style.borderColor = '#ef4444';
+        entry.wrapper.style.animation = 'hudUrgentCard 0.45s infinite';
       } else {
-        entry.card.style.borderColor = '#38bdf8';
-        entry.card.style.animation = 'none';
-        entry.timeLabel.style.color = '#94a3b8';
+        entry.topSquare.style.borderColor = '#f1f5f9';
+        entry.wrapper.style.animation = 'none';
       }
     });
   }
 
-  private getDishIllustrationEmoji(order: OrderRecipe): string {
+  /**
+   * High-Contrast Top-Down Circular Dish Illustration SVG for the Top Ticket Square (Matches Images 2 & 3)
+   */
+  private getDishPlateSVG(order: OrderRecipe): string {
     const req = order.requiredIngredients;
-    if (req.includes(IngredientType.BREAD) && req.includes(IngredientType.SLICED_CHEESE)) return '🍔';
-    if (req.includes(IngredientType.BREAD)) return '🍔';
-    if (req.includes(IngredientType.COOKED_PATTY) && !req.includes(IngredientType.BREAD)) return '🥩';
-    return '🥗';
+    const hasBread = req.includes(IngredientType.BREAD);
+    const hasCheese = req.includes(IngredientType.SLICED_CHEESE);
+    const hasLettuce = req.includes(IngredientType.CHOPPED_LETTUCE);
+    const hasTomato = req.includes(IngredientType.SLICED_TOMATO);
+    const hasMeat = req.includes(IngredientType.COOKED_PATTY);
+
+    if (hasBread) {
+      // Top-down Burger on a White Ceramic Plate with lettuce frills, tomato/cheese peeking out & sesame bun
+      return `
+        <svg width="58" height="58" viewBox="0 0 64 64">
+          <circle cx="32" cy="33" r="29" fill="rgba(0,0,0,0.22)"/>
+          <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
+          <circle cx="32" cy="31" r="21" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
+          ${
+            hasLettuce
+              ? `<path d="M12,31 Q10,20 20,16 Q32,10 44,16 Q54,20 52,31 Q54,42 44,47 Q32,53 20,47 Q10,42 12,31 Z" fill="#22c55e" stroke="#14532d" stroke-width="2"/>`
+              : ''
+          }
+          ${
+            hasCheese
+              ? `<polygon points="15,20 49,18 51,44 14,43" fill="#facc15" stroke="#854d0e" stroke-width="2"/>`
+              : ''
+          }
+          ${
+            hasTomato
+              ? `<circle cx="44" cy="22" r="8" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.8"/>
+                 <circle cx="20" cy="40" r="8" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.8"/>`
+              : ''
+          }
+          ${
+            hasMeat
+              ? `<circle cx="32" cy="32" r="18.5" fill="#78350f" stroke="#451a03" stroke-width="2"/>`
+              : ''
+          }
+          <circle cx="32" cy="30" r="16.5" fill="#f59e0b" stroke="#78350f" stroke-width="2.2"/>
+          <path d="M21,24 A13,10 0 0,1 43,24" fill="none" stroke="#fde68a" stroke-width="2.5" stroke-linecap="round"/>
+          <ellipse cx="27" cy="24" rx="2.2" ry="1.2" transform="rotate(-20 27 24)" fill="#fef9c3"/>
+          <ellipse cx="34" cy="22" rx="2.2" ry="1.2" transform="rotate(15 34 22)" fill="#fef9c3"/>
+          <ellipse cx="38" cy="28" rx="2.2" ry="1.2" transform="rotate(25 38 28)" fill="#fef9c3"/>
+          <ellipse cx="25" cy="31" rx="2.2" ry="1.2" transform="rotate(-10 25 31)" fill="#fef9c3"/>
+          <ellipse cx="32" cy="34" rx="2.2" ry="1.2" fill="#fef9c3"/>
+        </svg>
+      `;
+    }
+
+    if (hasMeat && !hasBread) {
+      // Seared Steak Plate
+      return `
+        <svg width="58" height="58" viewBox="0 0 64 64">
+          <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
+          <ellipse cx="32" cy="32" rx="19" ry="14" transform="rotate(-12 32 32)" fill="#7c2d12" stroke="#431407" stroke-width="2.2"/>
+          <line x1="22" y1="26" x2="36" y2="38" stroke="#290d02" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="28" y1="23" x2="42" y2="35" stroke="#290d02" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      `;
+    }
+
+    // Fresh Garden Salad on Plate
+    return `
+      <svg width="58" height="58" viewBox="0 0 64 64">
+        <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
+        <circle cx="32" cy="31" r="19" fill="#22c55e" stroke="#14532d" stroke-width="2"/>
+        <circle cx="26" cy="27" r="7" fill="#4ade80"/>
+        <circle cx="37" cy="34" r="7" fill="#4ade80"/>
+        ${
+          hasTomato
+            ? `<circle cx="36" cy="25" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.6"/>
+               <circle cx="26" cy="36" r="6" fill="#ef4444" stroke="#7f1d1d" stroke-width="1.6"/>`
+            : ''
+        }
+      </svg>
+    `;
   }
 
-  private getIngredientStepBadge(type: IngredientType): { icon: string; stepIcon: string; border: string } {
+  /**
+   * Crisp Cartoon Ingredient SVG inside the White Circle of each Light-Blue Hanging Strip (Matches Images 2 & 3)
+   */
+  private getRawIngredientSVG(type: IngredientType): string {
     switch (type) {
       case IngredientType.BREAD:
-        return { icon: '🍞', stepIcon: '', border: '#d97706' };
+        return `
+          <svg width="20" height="20" viewBox="0 0 32 32">
+            <ellipse cx="16" cy="17" rx="11" ry="9" fill="#f59e0b" stroke="#78350f" stroke-width="2.2"/>
+            <ellipse cx="12" cy="14" rx="1.6" ry="0.9" fill="#fef9c3"/>
+            <ellipse cx="17" cy="13" rx="1.6" ry="0.9" fill="#fef9c3"/>
+            <ellipse cx="20" cy="16" rx="1.6" ry="0.9" fill="#fef9c3"/>
+          </svg>
+        `;
       case IngredientType.COOKED_PATTY:
-        return { icon: '🥩', stepIcon: '🍳', border: '#ef4444' };
+        // Raw Marbled Red Ribeye Steak Icon (like Image 3 col 3!)
+        return `
+          <svg width="20" height="20" viewBox="0 0 32 32">
+            <ellipse cx="16" cy="16" rx="12" ry="8.5" transform="rotate(-22 16 16)" fill="#fda4af" stroke="#881337" stroke-width="2.2"/>
+            <ellipse cx="16.5" cy="16" rx="9.5" ry="6.5" transform="rotate(-22 16.5 16)" fill="#e11d48"/>
+            <circle cx="12" cy="16" r="2.6" fill="#ffffff" stroke="#881337" stroke-width="1.4"/>
+            <path d="M15,13 Q19,16 23,12" fill="none" stroke="#ffe4e6" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        `;
       case IngredientType.CHOPPED_LETTUCE:
-        return { icon: '🥬', stepIcon: '🔪', border: '#22c55e' };
+        return `
+          <svg width="20" height="20" viewBox="0 0 32 32">
+            <circle cx="16" cy="16" r="10.5" fill="#22c55e" stroke="#14532d" stroke-width="2.2"/>
+            <path d="M10,16 Q16,10 22,16 Q16,22 10,16 Z" fill="#86efac"/>
+          </svg>
+        `;
       case IngredientType.SLICED_TOMATO:
-        return { icon: '🍅', stepIcon: '🔪', border: '#f43f5e' };
+        // Plump Red Tomato with Green Star Calyx (like Image 2 col 2!)
+        return `
+          <svg width="20" height="20" viewBox="0 0 32 32">
+            <circle cx="16" cy="17" r="10" fill="#dc2626" stroke="#7f1d1d" stroke-width="2"/>
+            <polygon points="16,5 18,10 23,9 19,13 21,17 16,14 11,17 13,13 9,9 14,10" fill="#16a34a" stroke="#14532d" stroke-width="1.2"/>
+          </svg>
+        `;
       case IngredientType.SLICED_CHEESE:
-        return { icon: '🧀', stepIcon: '🔪', border: '#facc15' };
+        return `
+          <svg width="20" height="20" viewBox="0 0 32 32">
+            <polygon points="5,22 27,23 19,7" fill="#facc15" stroke="#854d0e" stroke-width="2.2" stroke-linejoin="round"/>
+            <circle cx="15" cy="18" r="2.2" fill="#ca8a04"/>
+            <circle cx="20" cy="19" r="1.6" fill="#ca8a04"/>
+          </svg>
+        `;
       default:
-        return { icon: '🍴', stepIcon: '', border: '#475569' };
+        return '';
     }
+  }
+
+  /**
+   * Solid-Black Silhouette Prep Tool Icon at the Bottom of the Light-Blue Hanging Strip (Matches Image 2!)
+   * - Cooked Patty -> Black Frying Pan with Handle + 3 Wavy Steam Lines
+   * - Chopped Veggies/Cheese -> Black Cleaver / Chopping Icon
+   * - Bread -> Empty string (shorter strip, no prep needed!)
+   */
+  private getPrepToolBlackSVG(type: IngredientType): string {
+    if (type === IngredientType.COOKED_PATTY) {
+      // Exact Black Frying Pan + 3 Steam Waves Silhouette from Reference Image 2!
+      return `
+        <svg width="22" height="19" viewBox="0 0 28 24">
+          <path d="M7,9 Q9,6 7,3 M12,9 Q14,6 12,3 M17,9 Q19,6 17,3" fill="none" stroke="#090d16" stroke-width="2" stroke-linecap="round"/>
+          <path d="M3,13 L20,13 L18,19 Q11.5,20.5 5,19 Z" fill="#090d16"/>
+          <rect x="19" y="13.5" width="7.5" height="2.4" rx="1" fill="#090d16"/>
+        </svg>
+      `;
+    }
+    if (
+      type === IngredientType.CHOPPED_LETTUCE ||
+      type === IngredientType.SLICED_TOMATO ||
+      type === IngredientType.SLICED_CHEESE
+    ) {
+      // Solid Black Chopping Knife & Board Silhouette
+      return `
+        <svg width="22" height="19" viewBox="0 0 28 24">
+          <path d="M4,15 L19,6 L22,11 L7,18 Z" fill="#090d16"/>
+          <rect x="20" y="5" width="5" height="2.6" rx="1" transform="rotate(-28 20 5)" fill="#090d16"/>
+          <rect x="3" y="20" width="22" height="2.6" rx="1" fill="#090d16"/>
+        </svg>
+      `;
+    }
+    return '';
   }
 
   public updateScoreAndTimer(score: number, combo: number, secondsRemaining: number) {

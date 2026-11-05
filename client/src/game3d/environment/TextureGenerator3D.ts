@@ -4,11 +4,10 @@ export class TextureGenerator3D {
   private static cache: Map<string, THREE.CanvasTexture> = new Map();
 
   /**
-   * Warm Stylized Restaurant Kitchen Floor Tiles with per-tile color variation,
-   * subtle ceramic speckles, beveled edges, and ambient occlusion grout lines.
+   * Overcooked-Style Blue-Grey Octagon & Diamond Geometric Tile Floor (Matches Reference Image 1)
    */
   public static getFloorTexture(): THREE.CanvasTexture {
-    const key = 'floor_tiles_v2';
+    const key = 'floor_tiles_octagon_v3';
     if (this.cache.has(key)) return this.cache.get(key)!;
 
     const size = 1024;
@@ -17,76 +16,78 @@ export class TextureGenerator3D {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
 
-    const tiles = 8;
-    const tileSize = size / tiles;
+    const cells = 4;
+    const cellSize = size / cells;
 
-    // Deep warm slate-brown mortar grout base (provides soft AO between tiles)
-    ctx.fillStyle = '#64748b';
+    // Deep slate grout base
+    ctx.fillStyle = '#4e5968';
     ctx.fillRect(0, 0, size, size);
 
-    const warmCreamVariants = ['#fffbeb', '#fef3c7', '#f8fafc', '#fef9c3'];
-    const terracottaVariants = ['#fed7aa', '#fdba74', '#ffedd5', '#fde68a'];
+    const octColors = ['#7c889b', '#768295', '#808c9f', '#788497'];
+    const cut = cellSize * 0.22; // 45-degree corner chamfer for octagon
+    const gap = 5;
 
-    for (let r = 0; r < tiles; r++) {
-      for (let c = 0; c < tiles; c++) {
-        const isAlternate = (r + c) % 2 === 1;
-        const x = c * tileSize;
-        const y = r * tileSize;
-        const gap = 5;
+    // 1. Draw Octagon Tiles
+    for (let r = 0; r < cells; r++) {
+      for (let c = 0; c < cells; c++) {
+        const x = c * cellSize;
+        const y = r * cellSize;
+        const color = octColors[(r * 3 + c * 5) % octColors.length];
 
-        // Deterministic pseudo-random variation per tile
-        const hash = (r * 17 + c * 31) % 4;
-        const baseColor = isAlternate
-          ? terracottaVariants[hash]
-          : (warmCreamVariants[hash].startsWith('#') && warmCreamVariants[hash].length === 7 ? warmCreamVariants[hash] : '#fffbeb');
-        const shadeColor = isAlternate ? '#f59e0b' : '#e2e8f0';
+        const drawOctagon = (inset: number) => {
+          ctx.beginPath();
+          ctx.moveTo(x + cut + inset * 0.4, y + inset);
+          ctx.lineTo(x + cellSize - cut - inset * 0.4, y + inset);
+          ctx.lineTo(x + cellSize - inset, y + cut + inset * 0.4);
+          ctx.lineTo(x + cellSize - inset, y + cellSize - cut - inset * 0.4);
+          ctx.lineTo(x + cellSize - cut - inset * 0.4, y + cellSize - inset);
+          ctx.lineTo(x + cut + inset * 0.4, y + cellSize - inset);
+          ctx.lineTo(x + inset, y + cellSize - cut - inset * 0.4);
+          ctx.lineTo(x + inset, y + cut + inset * 0.4);
+          ctx.closePath();
+        };
 
-        // Outer grout AO shadow
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
-        ctx.fillRect(x + gap - 2, y + gap - 2, tileSize - (gap - 2) * 2, tileSize - (gap - 2) * 2);
-
-        // Tile body gradient
-        const grad = ctx.createLinearGradient(x + gap, y + gap, x + tileSize - gap, y + tileSize - gap);
-        grad.addColorStop(0, baseColor);
-        grad.addColorStop(0.85, baseColor);
-        grad.addColorStop(1, shadeColor);
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        const rad = 10;
-        if (ctx.roundRect) {
-          ctx.roundRect(x + gap, y + gap, tileSize - gap * 2, tileSize - gap * 2, rad);
-        } else {
-          ctx.rect(x + gap, y + gap, tileSize - gap * 2, tileSize - gap * 2);
-        }
+        // Grout shadow border
+        ctx.fillStyle = '#3b4452';
+        drawOctagon(gap - 2);
         ctx.fill();
 
-        // Subtle ceramic texture speckles for natural variation
-        ctx.fillStyle = isAlternate ? 'rgba(180, 83, 9, 0.06)' : 'rgba(100, 116, 139, 0.05)';
-        for (let s = 0; s < 10; s++) {
-          const sx = x + gap + 14 + ((r * 23 + c * 41 + s * 37) % (tileSize - gap * 2 - 28));
-          const sy = y + gap + 14 + ((r * 19 + c * 29 + s * 53) % (tileSize - gap * 2 - 28));
-          ctx.beginPath();
-          ctx.arc(sx, sy, 2 + (s % 3), 0, Math.PI * 2);
-          ctx.fill();
-        }
+        // Main octagon tile surface with subtle bevel gradient
+        const grad = ctx.createLinearGradient(x, y, x + cellSize, y + cellSize);
+        grad.addColorStop(0, '#8b97aa');
+        grad.addColorStop(0.25, color);
+        grad.addColorStop(0.85, color);
+        grad.addColorStop(1, '#687385');
+        ctx.fillStyle = grad;
+        drawOctagon(gap);
+        ctx.fill();
 
-        // Top-left bevel highlight
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(x + gap + 4, y + tileSize - gap - 6);
-        ctx.lineTo(x + gap + 4, y + gap + 4);
-        ctx.lineTo(x + tileSize - gap - 6, y + gap + 4);
+        // Subtle inner bevel highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+        ctx.lineWidth = 2;
+        drawOctagon(gap + 2);
         ctx.stroke();
+      }
+    }
 
-        // Bottom-right bevel shadow
-        ctx.strokeStyle = 'rgba(71, 85, 105, 0.28)';
-        ctx.lineWidth = 2.5;
+    // 2. Draw Small Rotated Square (Diamond) Inserts at Every Corner Intersection
+    const dRadius = cut - gap * 1.1;
+    for (let r = 0; r <= cells; r++) {
+      for (let c = 0; c <= cells; c++) {
+        const cx = c * cellSize;
+        const cy = r * cellSize;
+
+        ctx.fillStyle = '#707c8e';
         ctx.beginPath();
-        ctx.moveTo(x + tileSize - gap - 4, y + gap + 6);
-        ctx.lineTo(x + tileSize - gap - 4, y + tileSize - gap - 4);
-        ctx.lineTo(x + gap + 6, y + tileSize - gap - 4);
+        ctx.moveTo(cx, cy - dRadius);
+        ctx.lineTo(cx + dRadius, cy);
+        ctx.lineTo(cx, cy + dRadius);
+        ctx.lineTo(cx - dRadius, cy);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 2;
         ctx.stroke();
       }
     }
@@ -95,16 +96,16 @@ export class TextureGenerator3D {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(3.2, 2.6);
+    texture.repeat.set(3.5, 2.8);
     this.cache.set(key, texture);
     return texture;
   }
 
   /**
-   * Floor Roughness Map: Smooth satin tile centers (grey ~0.35) with matte grout lines (white ~0.95)
+   * Floor Roughness Map matching the Octagon & Diamond tiles
    */
   public static getFloorRoughnessMap(): THREE.CanvasTexture {
-    const key = 'floor_roughness_v2';
+    const key = 'floor_roughness_octagon_v3';
     if (this.cache.has(key)) return this.cache.get(key)!;
 
     const size = 512;
@@ -113,29 +114,39 @@ export class TextureGenerator3D {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
 
-    const tiles = 8;
-    const tileSize = size / tiles;
+    const cells = 4;
+    const cellSize = size / cells;
+    const cut = cellSize * 0.22;
+    const gap = 3;
 
-    // Matte grout (high roughness)
-    ctx.fillStyle = '#f1f5f9';
+    // Matte grout
+    ctx.fillStyle = '#e2e8f0';
     ctx.fillRect(0, 0, size, size);
 
-    for (let r = 0; r < tiles; r++) {
-      for (let c = 0; c < tiles; c++) {
-        const x = c * tileSize;
-        const y = r * tileSize;
-        const gap = 3;
-        // Slight per-tile roughness variation
-        const roughVal = 95 + ((r * 13 + c * 7) % 30);
+    for (let r = 0; r < cells; r++) {
+      for (let c = 0; c < cells; c++) {
+        const x = c * cellSize;
+        const y = r * cellSize;
+        const roughVal = 95 + ((r * 13 + c * 7) % 20);
         ctx.fillStyle = `rgb(${roughVal}, ${roughVal}, ${roughVal})`;
-        ctx.fillRect(x + gap, y + gap, tileSize - gap * 2, tileSize - gap * 2);
+        ctx.beginPath();
+        ctx.moveTo(x + cut, y + gap);
+        ctx.lineTo(x + cellSize - cut, y + gap);
+        ctx.lineTo(x + cellSize - gap, y + cut);
+        ctx.lineTo(x + cellSize - gap, y + cellSize - cut);
+        ctx.lineTo(x + cellSize - cut, y + cellSize - gap);
+        ctx.lineTo(x + cut, y + cellSize - gap);
+        ctx.lineTo(x + gap, y + cellSize - cut);
+        ctx.lineTo(x + gap, y + cut);
+        ctx.closePath();
+        ctx.fill();
       }
     }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(3.2, 2.6);
+    texture.repeat.set(3.5, 2.8);
     this.cache.set(key, texture);
     return texture;
   }
@@ -245,36 +256,58 @@ export class TextureGenerator3D {
   }
 
   /**
-   * Cutting Board Butcher Block Texture
+   * Overcooked-Style White/Light-Grey Cutting Board with Side Handle Slots (Matches Reference Image 1)
    */
   public static getButcherBlockTexture(): THREE.CanvasTexture {
-    const key = 'butcher_block';
+    const key = 'butcher_block_white_v3';
     if (this.cache.has(key)) return this.cache.get(key)!;
 
-    const size = 256;
+    const w = 512;
+    const h = 384;
     const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d')!;
 
-    const cols = 6;
-    const rows = 4;
-    const w = size / cols;
-    const h = size / rows;
+    // Warm light grey-white plastic board surface
+    ctx.fillStyle = '#e5e7eb';
+    ctx.fillRect(0, 0, w, h);
 
-    const woodTones = ['#b45309', '#d97706', '#92400e', '#78350f', '#f59e0b'];
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const tone = woodTones[(r * 3 + c * 2) % woodTones.length];
-        ctx.fillStyle = tone;
-        ctx.fillRect(c * w, r * h, w, h);
-
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(c * w, r * h, w, h);
-      }
+    // Subtle recessed inner cutting groove border
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 6;
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(18, 18, w - 36, h - 36, 28);
+      ctx.stroke();
     }
+
+    // Subtle knife score marks in center
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = 3;
+    for (let i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 60 + i * 18, h / 2 - 45);
+      ctx.lineTo(w / 2 + 40 + i * 18, h / 2 + 55);
+      ctx.stroke();
+    }
+
+    // Left and Right Dark-Wood Cutout Handle Slots (Revealing the brown table beneath, just like Image 1!)
+    const drawHandleSlot = (sx: number) => {
+      ctx.fillStyle = '#5c3418';
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(sx, h * 0.24, 34, h * 0.52, 17);
+      } else {
+        ctx.rect(sx, h * 0.24, 34, h * 0.52);
+      }
+      ctx.fill();
+      ctx.stroke();
+    };
+    drawHandleSlot(34);
+    drawHandleSlot(w - 68);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -283,12 +316,13 @@ export class TextureGenerator3D {
   }
 
   /**
-   * PHẦN 2.2: High-Resolution 2D Cartoon Ingredient Illustration Decal for Storage Bin Top Surface!
-   * Replaces plain colored 2D circles with multi-icon cartoon artwork representing the exact ingredient inside.
-   * Purely decorative decal (no collider, does not block placement or raycasting).
+   * Overcooked-Style Ingredient Crate Top Surface Decal (Matches Reference Image 1 Row 2 Center):
+   * - Dark recessed wooden panel background (#5c3418)
+   * - Large crisp white circular plate medallion in the center
+   * - Single bold, high-contrast 2D cartoon ingredient illustration centered on the white circle!
    */
   public static getIngredientBinTopDecalTexture(crateType: string): THREE.CanvasTexture {
-    const key = `bin_top_decal_${crateType}`;
+    const key = `bin_top_decal_oc_${crateType}`;
     if (this.cache.has(key)) return this.cache.get(key)!;
 
     const size = 512;
@@ -297,117 +331,60 @@ export class TextureGenerator3D {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
 
-    let bgTint = '#fffbeb';
-    let borderColor = '#d97706';
-    let labelText = 'BÁNH MÌ BURGER';
+    // 1. Recessed Dark Warm Wood Inner Panel (#5c3418)
+    ctx.fillStyle = '#5c3418';
+    ctx.fillRect(0, 0, size, size);
 
-    if (crateType === 'crate_meat') {
-      bgTint = '#fff1f2';
-      borderColor = '#ef4444';
-      labelText = 'THỊT BÒ TƯƠI';
-    } else if (crateType === 'crate_lettuce') {
-      bgTint = '#f0fdf4';
-      borderColor = '#22c55e';
-      labelText = 'XÀ LÁCH TƯƠI';
-    } else if (crateType === 'crate_tomato') {
-      bgTint = '#fef2f2';
-      borderColor = '#f43f5e';
-      labelText = 'CÀ CHUA ĐỎ';
-    } else if (crateType === 'crate_cheese') {
-      bgTint = '#fefce8';
-      borderColor = '#eab308';
-      labelText = 'PHÔ MAI THỤY SĨ';
-    } else if (crateType === 'crate_plate') {
-      bgTint = '#f0f9ff';
-      borderColor = '#0ea5e9';
-      labelText = 'KỆ ĐĨA SỨ SẠCH';
+    // Subtle wood grain lines on recessed panel
+    ctx.strokeStyle = 'rgba(40, 20, 8, 0.35)';
+    ctx.lineWidth = 4;
+    for (let y = 16; y < size; y += 36) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.stroke();
     }
 
-    // 1. Soft rounded wooden/parchment inlay mat
-    ctx.fillStyle = bgTint;
+    // Inner shadow around perimeter from raised wooden frame
+    ctx.strokeStyle = 'rgba(20, 10, 4, 0.55)';
+    ctx.lineWidth = 24;
+    ctx.strokeRect(0, 0, size, size);
+
+    // 2. Center White Circular Plate Medallion (Just like Reference Image 1!)
+    const cx = size / 2;
+    const cy = size / 2;
+    const plateRadius = 168;
+
+    // Drop shadow under white circle
+    ctx.fillStyle = 'rgba(15, 8, 2, 0.45)';
     ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(14, 14, size - 28, size - 28, 36);
-    } else {
-      ctx.rect(14, 14, size - 28, size - 28);
-    }
+    ctx.arc(cx, cy + 8, plateRadius + 4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Subtle diagonal gingham/butcher-paper pattern
-    ctx.strokeStyle = `${borderColor}18`;
-    ctx.lineWidth = 10;
-    for (let i = -size; i < size * 2; i += 44) {
-      ctx.beginPath();
-      ctx.moveTo(i, 16);
-      ctx.lineTo(i + size, size - 16);
-      ctx.stroke();
-    }
-
-    // Outer double cartoon frame
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = 10;
+    // Crisp White Circular Plate
+    ctx.fillStyle = '#f8fafc';
+    ctx.strokeStyle = '#29170a';
+    ctx.lineWidth = 7;
     ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(18, 18, size - 36, size - 36, 32);
-    } else {
-      ctx.rect(18, 18, size - 36, size - 36);
-    }
+    ctx.arc(cx, cy, plateRadius, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
 
-    // Subtle corner L-brackets indicating multi-item surface area (never plain circles!)
-    ctx.strokeStyle = `${borderColor}66`;
-    ctx.lineWidth = 5;
-    const corners = [
-      [42, 42, 1, 1],
-      [size - 42, 42, -1, 1],
-      [42, size - 88, 1, -1],
-      [size - 42, size - 88, -1, -1]
-    ];
-    corners.forEach(([cx, cy, dx, dy]) => {
-      ctx.beginPath();
-      ctx.moveTo(cx, cy + dy * 28);
-      ctx.lineTo(cx, cy);
-      ctx.lineTo(cx + dx * 28, cy);
-      ctx.stroke();
-    });
+    // Subtle inner plate rim
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, plateRadius - 24, 0, Math.PI * 2);
+    ctx.stroke();
 
-    // 2. Draw 4 rich 2D cartoon ingredient illustrations arranged across the bin top
-    const iconPositions = [
-      { x: 148, y: 142, scale: 0.92, rot: -0.14 },
-      { x: 364, y: 142, scale: 0.92, rot: 0.16 },
-      { x: 148, y: 312, scale: 0.92, rot: 0.12 },
-      { x: 364, y: 312, scale: 0.92, rot: -0.12 },
-      { x: 256, y: 224, scale: 1.22, rot: 0.0 }
-    ];
-
-    iconPositions.forEach((pos) => {
+    // 3. Single Large Bold 2D Cartoon Ingredient Illustration in the Center of the White Circle
+    if (crateType !== 'crate_plate') {
       ctx.save();
-      ctx.translate(pos.x, pos.y);
-      ctx.rotate(pos.rot);
-      ctx.scale(pos.scale, pos.scale);
+      ctx.translate(cx, cy);
+      ctx.scale(2.15, 2.15);
       this.drawCartoonIngredientIcon(ctx, crateType);
       ctx.restore();
-    });
-
-    // 3. Bottom Cartoon Ribbon Name Banner
-    ctx.fillStyle = borderColor;
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(56, size - 74, size - 112, 48, 24);
-    } else {
-      ctx.rect(56, size - 74, size - 112, 48);
     }
-    ctx.fill();
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.stroke();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 26px "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, size / 2, size - 49);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;

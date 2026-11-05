@@ -435,85 +435,123 @@ export class KitchenMap3D {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
 
-    // 1. Base Counter Cabinet Body (Customized per station type so stations aren't identical grey boxes!)
+    // 1. Base Counter Body (Designed to match Reference Image 1!)
     const isStove = type === CounterType.STOVE;
-    const isCutting = type === CounterType.CUTTING_BOARD;
     const isDelivery = type === CounterType.DELIVERY;
     const isTrash = type === CounterType.TRASH;
+    const isSink = id === 'counter_1_-3';
+    const isCrate = type.startsWith('crate_');
+    // Alternate between Drawer Cabinets and 4-Legged Open Wooden Tables just like Reference Image 1!
+    const isDrawerTable =
+      type === CounterType.CRATE_PLATE ||
+      (type === CounterType.CLEAR && Math.abs(Math.round(x + z)) % 2 === 1);
 
-    if (!isTrash) {
-      const bodyColor = isStove
-        ? 0x334155 // Brushed dark steel range body
-        : isCutting
-        ? 0x1e3a5f // Deep chef-blue prep cabinet
-        : isDelivery
-        ? 0x064e3b // Rich emerald service base
-        : 0x1e293b; // Classic navy-slate Shaker cabinet
+    const woodTopMat = new THREE.MeshStandardMaterial({ color: 0x7c4a27, roughness: 0.52, metalness: 0.06 });
+    const woodBodyMat = new THREE.MeshStandardMaterial({ color: 0x5c3418, roughness: 0.58, metalness: 0.05 });
+    const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x43230e, roughness: 0.65 });
+    const chromeHandleMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.85 });
 
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: bodyColor,
-        roughness: isStove ? 0.32 : 0.45,
-        metalness: isStove ? 0.55 : 0.12
-      });
-      const bodyGeo = new THREE.BoxGeometry(0.94, 0.76, 0.94);
-      const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    if (isStove) {
+      // Bright Crimson-Red Metallic Stove Body & Top Slab (Matches Reference Image 1 Row 2/3 Right!)
+      const stoveBodyMat = new THREE.MeshStandardMaterial({ color: 0x9e1b18, roughness: 0.35, metalness: 0.28 });
+      const stoveTopMat = new THREE.MeshStandardMaterial({ color: 0xd62828, roughness: 0.28, metalness: 0.25 });
+
+      const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.76, 0.96), stoveBodyMat);
       bodyMesh.position.y = 0.38;
       bodyMesh.castShadow = true;
       bodyMesh.receiveShadow = true;
       group.add(bodyMesh);
 
-      // Front Cabinet Door Panel & 3D Brushed Metal Handle Bar (on non-crate, non-stove counters)
-      if (!type.startsWith('crate_') && !isStove) {
-        const cabinetMat = new THREE.MeshStandardMaterial({
-          map: TextureGenerator3D.getCabinetFrontTexture(),
-          roughness: 0.35,
-          metalness: 0.2
-        });
-        const frontPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.68), cabinetMat);
-        frontPanel.position.set(0, 0.38, 0.472);
-        group.add(frontPanel);
+      const topMesh = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 1.0), stoveTopMat);
+      topMesh.position.y = 0.80;
+      topMesh.castShadow = true;
+      topMesh.receiveShadow = true;
+      group.add(topMesh);
+    } else if (isDelivery) {
+      // Dark Charcoal Metal Pass-Through Base & Brushed Silver Tray Top (Matches Reference Image 1 Row 1 Right!)
+      const delivBaseMat = new THREE.MeshStandardMaterial({ color: 0x333942, roughness: 0.45, metalness: 0.5 });
+      const delivTopMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.22, metalness: 0.72 });
 
-        // 3D Chrome Handle Bar on front door
-        const handleBar = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.014, 0.014, 0.26, 10),
-          new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.85, roughness: 0.15 })
-        );
-        handleBar.rotation.z = Math.PI / 2;
-        handleBar.position.set(0, 0.62, 0.49);
-        group.add(handleBar);
-      }
+      const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.76, 0.96), delivBaseMat);
+      bodyMesh.position.y = 0.38;
+      bodyMesh.castShadow = true;
+      bodyMesh.receiveShadow = true;
+      group.add(bodyMesh);
 
-      // 2. Beveled Countertop Slab with warm wood/steel edge trim
-      const topColor = isStove
-        ? 0x94a3b8
-        : isCutting
-        ? 0xfef3c7
-        : 0xf8fafc;
-      const topMat = new THREE.MeshStandardMaterial({
-        color: topColor,
-        roughness: 0.24,
-        metalness: isStove ? 0.65 : 0.35
+      const topMesh = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 1.0), delivTopMat);
+      topMesh.position.y = 0.80;
+      topMesh.castShadow = true;
+      topMesh.receiveShadow = true;
+      group.add(topMesh);
+    } else if (isSink) {
+      // Warm Brown Cabinet Base with Two Front Doors + Silver Vertical Handles & Brushed Metal Sink Top (Matches Image 1 Row 1 Left!)
+      const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.76, 0.96), woodBodyMat);
+      bodyMesh.position.y = 0.38;
+      bodyMesh.castShadow = true;
+      bodyMesh.receiveShadow = true;
+      group.add(bodyMesh);
+
+      // Front door center seam & 2 silver vertical handles
+      const doorSeam = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.62, 0.02), woodDarkMat);
+      doorSeam.position.set(0, 0.36, 0.482);
+      group.add(doorSeam);
+
+      [-0.06, 0.06].forEach((hx) => {
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.16, 0.04), chromeHandleMat);
+        handle.position.set(hx, 0.36, 0.495);
+        group.add(handle);
       });
-      const topGeo = new THREE.BoxGeometry(1.0, 0.08, 1.0);
-      const topMesh = new THREE.Mesh(topGeo, topMat);
+
+      const sinkTopMat = new THREE.MeshStandardMaterial({ color: 0x8d7b6d, roughness: 0.28, metalness: 0.55 });
+      const topMesh = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 1.0), sinkTopMat);
+      topMesh.position.y = 0.80;
+      topMesh.castShadow = true;
+      topMesh.receiveShadow = true;
+      group.add(topMesh);
+    } else if (!isTrash && !isCrate) {
+      // Warm Brown Wooden Tabletop (Matches Reference Image 1!)
+      const topMesh = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 1.0), woodTopMat);
       topMesh.position.y = 0.80;
       topMesh.castShadow = true;
       topMesh.receiveShadow = true;
       group.add(topMesh);
 
-      // Warm Brass/Wood Corner Trim Molding on standard counters
-      if (type === CounterType.CLEAR) {
-        const trimMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.35, metalness: 0.35 });
-        const frontTrim = new THREE.Mesh(new THREE.BoxGeometry(1.01, 0.024, 0.025), trimMat);
-        frontTrim.position.set(0, 0.80, 0.495);
-        group.add(frontTrim);
-      }
+      if (isDrawerTable) {
+        // Wooden Drawer Cabinet Body with Front Silver Pull Handle (Matches Image 1 Row 2 Col 4 & Row 3 Col 1)
+        const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.76, 0.92), woodBodyMat);
+        bodyMesh.position.y = 0.38;
+        bodyMesh.castShadow = true;
+        bodyMesh.receiveShadow = true;
+        group.add(bodyMesh);
 
-      // Recessed Dark Plinth Base (Kickplate creating contact shadow)
-      const plinthMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.8 });
-      const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.08, 0.86), plinthMat);
-      plinth.position.y = 0.04;
-      group.add(plinth);
+        const drawerFace = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.26, 0.025), woodDarkMat);
+        drawerFace.position.set(0, 0.24, 0.465);
+        group.add(drawerFace);
+
+        const uHandle = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.026, 0.045), chromeHandleMat);
+        uHandle.position.set(0, 0.24, 0.485);
+        group.add(uHandle);
+      } else {
+        // 4-Legged Open Wooden Table with Under-Table Apron Skirt (Matches Image 1 Row 2 Col 1 & Row 3 Col 2/3)
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.14, 0.88), woodBodyMat);
+        apron.position.y = 0.70;
+        apron.castShadow = true;
+        group.add(apron);
+
+        const legCoords = [
+          [-0.38, -0.38],
+          [0.38, -0.38],
+          [-0.38, 0.38],
+          [0.38, 0.38]
+        ];
+        legCoords.forEach(([lx, lz]) => {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.74, 0.12), woodBodyMat);
+          leg.position.set(lx, 0.37, lz);
+          leg.castShadow = true;
+          leg.receiveShadow = true;
+          group.add(leg);
+        });
+      }
     }
 
     // Calibrated Snap-to-Slot Item Holder (Item bottom plane rests exactly at surface)
@@ -1036,44 +1074,12 @@ export class KitchenMap3D {
     sinkBubblesGroup?: THREE.Group;
     deliveryArrowMesh?: THREE.Mesh;
   } {
-    // Dedicated Fire Extinguisher Station on top-right counter (3, -3)
+    // Dedicated Fire Extinguisher Station on top-right counter (3, -3) — Clean wooden table like Image 1 Row 2 Col 1
     if (id === 'counter_3_-3') {
-      const standMat = new THREE.MeshStandardMaterial({
-        color: 0xdc2626,
-        emissive: 0x991b1b,
-        emissiveIntensity: 0.25,
-        roughness: 0.35
-      });
-      const yellowSafetyMat = new THREE.MeshStandardMaterial({
-        color: 0xfacc15,
-        roughness: 0.35,
-        metalness: 0.2
-      });
-
-      const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.40, 0.018, 24), yellowSafetyMat);
-      outerRing.position.y = 0.848;
-      group.add(outerRing);
-
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 0.026, 20), standMat);
-      pad.position.y = 0.854;
-      group.add(pad);
-
-      // Wall-mounted red safety backboard & clamp rack
-      const backRack = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.56, 0.05), standMat);
-      backRack.position.set(0, 1.16, -0.44);
-      group.add(backRack);
-
-      const rackStripe = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.09, 0.056), yellowSafetyMat);
-      rackStripe.position.set(0, 1.38, -0.44);
-      group.add(rackStripe);
-
-      this.createCrateSignBadge(group, '🧯', 0xdc2626);
-      this.createFloatingStationLabel(group, '🧯', 'CỨU HỎA', 0xef4444);
       return {};
     }
 
-    // Decorative Cartoon Kitchen Appliances on non-interactive back-wall corner counters:
-    // Top-left corner (-4, -3): Cartoon Commercial Refrigerator (CC0 kitchenFridge.glb)
+    // Top-left corner (-4, -3): Cartoon Commercial Refrigerator
     if (id === 'counter_-4_-3') {
       const fridgeGroup = new THREE.Group();
       const fallbackFridge = new THREE.Group();
@@ -1104,82 +1110,70 @@ export class KitchenMap3D {
       return {};
     }
 
-    // Back-wall counter (1, -3): Cartoon Kitchen Sink with Gooseneck Faucet, Drying Rack & Animated Soap Bubbles
+    // Back-wall counter (1, -3): Overcooked-Style Kitchen Sink (Matches Reference Image 1 Row 1 Left!)
+    // - Left rounded cyan-blue water basin
+    // - Center-back curved silver gooseneck faucet
+    // - Right ribbed drainboard with 4 parallel drainage ridges
     if (id === 'counter_1_-3') {
-      const basinMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.2, metalness: 0.75 });
+      const basinWallMat = new THREE.MeshStandardMaterial({ color: 0x574c43, roughness: 0.35, metalness: 0.6 });
       const waterMat = new THREE.MeshStandardMaterial({
-        color: 0x38bdf8,
+        color: 0x29abe2,
         emissive: 0x0284c7,
-        emissiveIntensity: 0.28,
+        emissiveIntensity: 0.24,
         roughness: 0.12
       });
-      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.9 });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.88 });
+      const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x6e5f53, roughness: 0.3, metalness: 0.55 });
       const foamMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         emissive: 0xe0f2fe,
-        emissiveIntensity: 0.22,
+        emissiveIntensity: 0.2,
         roughness: 0.25,
         transparent: true,
-        opacity: 0.88
+        opacity: 0.85
       });
 
-      const basin = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.045, 0.66), basinMat);
-      basin.position.set(0, 0.845, 0.04);
-      group.add(basin);
+      // Left recessed basin rim + cyan-blue water pool
+      const basinRim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.025, 0.62), basinWallMat);
+      basinRim.position.set(-0.20, 0.842, 0.04);
+      group.add(basinRim);
 
-      const water = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.05, 0.56), waterMat);
-      water.position.set(-0.14, 0.85, 0.04);
+      const water = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.03, 0.54), waterMat);
+      water.position.set(-0.20, 0.846, 0.04);
       group.add(water);
 
-      // Slanted stainless drying rack on right side with clean dishes
-      const rackBoard = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.03, 0.54), chromeMat);
-      rackBoard.position.set(0.24, 0.86, 0.04);
-      rackBoard.rotation.z = 0.08;
-      group.add(rackBoard);
+      // Right ribbed drainboard with 4 parallel horizontal grooves (Matches Image 1 Row 1 Left!)
+      const drainFrame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.018, 0.62), ridgeMat);
+      drainFrame.position.set(0.22, 0.842, 0.04);
+      group.add(drainFrame);
 
-      for (let r = -1; r <= 1; r++) {
-        const dryPlate = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.11, 0.09, 0.02, 16),
-          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15 })
-        );
-        dryPlate.rotation.x = Math.PI / 2 - 0.25;
-        dryPlate.position.set(0.24, 0.93, 0.04 + r * 0.13);
-        group.add(dryPlate);
+      for (let r = -1.5; r <= 1.5; r += 1) {
+        const grooveBar = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.026, 0.04), basinWallMat);
+        grooveBar.position.set(0.22, 0.848, 0.04 + r * 0.12);
+        group.add(grooveBar);
       }
 
-      // Gooseneck Faucet + Hot/Cold Knobs
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 0.30, 12), chromeMat);
-      stem.position.set(-0.12, 0.99, -0.32);
+      // Curved Silver Gooseneck Faucet in center-back
+      const faucetBase = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.08), chromeMat);
+      faucetBase.position.set(0.0, 0.86, -0.32);
+      group.add(faucetBase);
+
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 0.26, 12), chromeMat);
+      stem.position.set(0.0, 0.98, -0.32);
       group.add(stem);
 
-      const spout = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.028, 10, 16, Math.PI), chromeMat);
+      const spout = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.026, 10, 16, Math.PI), chromeMat);
       spout.rotation.y = Math.PI / 2;
-      spout.position.set(-0.12, 1.12, -0.21);
+      spout.position.set(0.0, 1.10, -0.22);
       group.add(spout);
-
-      const hotKnob = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.028, 0.028, 0.03, 10),
-        new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 })
-      );
-      hotKnob.position.set(-0.26, 0.88, -0.32);
-      group.add(hotKnob);
-
-      const coldKnob = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.028, 0.028, 0.03, 10),
-        new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3 })
-      );
-      coldKnob.position.set(0.02, 0.88, -0.32);
-      group.add(coldKnob);
 
       // Animated rising soap bubbles group
       const sinkBubblesGroup = new THREE.Group();
-      sinkBubblesGroup.position.set(-0.14, 0.88, 0.04);
+      sinkBubblesGroup.position.set(-0.20, 0.87, 0.04);
       const bubbleCoords = [
-        [-0.12, 0.02, -0.10, 0.048],
-        [0.08, 0.05, -0.06, 0.040],
-        [-0.04, 0.08, 0.09, 0.052],
-        [0.11, 0.03, 0.12, 0.036],
-        [-0.14, 0.06, 0.08, 0.042]
+        [-0.08, 0.02, -0.08, 0.042],
+        [0.06, 0.04, -0.04, 0.036],
+        [-0.02, 0.06, 0.07, 0.045]
       ];
       bubbleCoords.forEach(([bx, by, bz, br]) => {
         const bMesh = new THREE.Mesh(new THREE.SphereGeometry(br, 10, 10), foamMat);
@@ -1191,164 +1185,154 @@ export class KitchenMap3D {
       return { sinkBubblesGroup };
     }
 
-    // 1. CUTTING BOARD (CC0 cutting-board.glb & cooking-knife-chopping.glb + Side Towel Rail)
+    // 1. CUTTING BOARD (Matches Reference Image 1 Row 3 Center: White Rounded Board with 2 Handle Slots + Diagonal Chef Knife)
     if (type === CounterType.CUTTING_BOARD) {
-      const boardContainer = new THREE.Group();
-      const boardGeo = new THREE.BoxGeometry(0.74, 0.05, 0.58);
+      const boardGeo = new THREE.BoxGeometry(0.76, 0.032, 0.58);
       const boardMat = new THREE.MeshStandardMaterial({
         map: TextureGenerator3D.getButcherBlockTexture(),
-        roughness: 0.5,
+        roughness: 0.38,
         metalness: 0.05
       });
-      const fallbackBoard = new THREE.Mesh(boardGeo, boardMat);
-      fallbackBoard.position.set(0, 0.865, 0.02);
-      fallbackBoard.castShadow = true;
+      const boardMesh = new THREE.Mesh(boardGeo, boardMat);
+      boardMesh.position.set(0, 0.856, 0.0);
+      boardMesh.castShadow = true;
+      boardMesh.receiveShadow = true;
+      group.add(boardMesh);
 
-      ExternalModelLoader.attachModel(
-        boardContainer,
-        ExternalModelLoader.PATHS.CUTTING_BOARD,
-        { targetWidth: 0.74, offsetY: 0.842, offsetZ: 0.02 },
-        fallbackBoard
-      );
-      group.add(boardContainer);
-
-      // Chrome Towel Bar & Checkered Chef Towel on front apron
-      const railMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.85 });
-      const towelBar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.44, 10), railMat);
-      towelBar.rotation.z = Math.PI / 2;
-      towelBar.position.set(0, 0.72, 0.51);
-      group.add(towelBar);
-
-      const towelCloth = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.22, 0.022),
-        new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.8 })
-      );
-      towelCloth.position.set(-0.08, 0.62, 0.515);
-      group.add(towelCloth);
-
-      // Stainless Steel Chef Knife angled on board
+      // Large White-Bladed Chef Knife with Brown Handle angled across the board (Matches Image 1 Row 3 Center!)
       const knifeGroup = new THREE.Group();
-      knifeGroup.position.set(0.24, 0.895, 0.20);
-      knifeGroup.rotation.y = -Math.PI / 6;
+      knifeGroup.position.set(0.08, 0.882, 0.04);
+      knifeGroup.rotation.y = -Math.PI / 2.8;
 
       const fallbackKnife = new THREE.Group();
-      const blade = new THREE.Mesh(
-        new THREE.BoxGeometry(0.32, 0.02, 0.06),
-        new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.9 })
+      // Wide tapered white/silver chef blade
+      const bladeShape = new THREE.Shape();
+      bladeShape.moveTo(-0.22, -0.04);
+      bladeShape.lineTo(0.10, -0.055);
+      bladeShape.lineTo(0.10, 0.045);
+      bladeShape.quadraticCurveTo(-0.08, 0.045, -0.22, -0.04);
+      const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.012, bevelEnabled: false });
+      const bladeMesh = new THREE.Mesh(
+        bladeGeo,
+        new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.18, metalness: 0.65 })
       );
-      blade.castShadow = true;
-      fallbackKnife.add(blade);
+      bladeMesh.rotation.x = Math.PI / 2;
+      bladeMesh.position.y = 0.008;
+      bladeMesh.castShadow = true;
+      fallbackKnife.add(bladeMesh);
 
+      // Warm brown wooden handle with 2 silver rivets
       const handle = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.025, 0.04),
-        new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 })
+        new THREE.BoxGeometry(0.18, 0.028, 0.042),
+        new THREE.MeshStandardMaterial({ color: 0x7c4a27, roughness: 0.55 })
       );
-      handle.position.x = 0.22;
+      handle.position.set(0.19, 0.008, -0.005);
+      handle.castShadow = true;
       fallbackKnife.add(handle);
 
-      ExternalModelLoader.attachModel(
-        knifeGroup,
-        ExternalModelLoader.PATHS.CHEF_KNIFE,
-        { targetWidth: 0.36, rotationZ: Math.PI / 2 },
-        fallbackKnife
-      );
-
+      knifeGroup.add(fallbackKnife);
       group.add(knifeGroup);
 
       const prog = this.createProgressBar3D();
       group.add(prog.progressGroup);
       return { ...prog, boardKnifeGroup: knifeGroup };
     }
-    // 2. STOVE & FRYING PAN (CC0 frying-pan.glb + Cast-Iron Grates + Glowing Oven Door Window)
+    // 2. STOVE & FRYING PAN (Matches Reference Image 1 Row 2/3 Right: Bright Red Stove, Black Spider Burner Ring, Lower Front Grey Strip + Red Button + Black Knob, Dark Pan with Red Center Dot & Wood Handle)
     else if (type === CounterType.STOVE) {
-      const ironMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.65, metalness: 0.82 });
-      // Cast Iron Burner Grate Frame
-      const burnerFrame = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.024, 0.82), ironMat);
-      burnerFrame.position.y = 0.85;
-      group.add(burnerFrame);
+      const blackIronMat = new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.55, metalness: 0.65 });
 
-      // 4-Prong Spider Grate Bars
-      const grateBarX = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.028, 0.045), ironMat);
-      grateBarX.position.y = 0.86;
-      group.add(grateBarX);
-      const grateBarZ = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.028, 0.74), ironMat);
-      grateBarZ.position.y = 0.86;
-      group.add(grateBarZ);
-
-      // Glowing Red Heat Ring
-      const heatRingMat = new THREE.MeshStandardMaterial({
-        color: 0xef4444,
-        emissive: 0xdc2626,
-        emissiveIntensity: 0.75
-      });
-      const heatRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.026, 8, 24), heatRingMat);
-      heatRing.rotation.x = Math.PI / 2;
-      heatRing.position.y = 0.864;
-      group.add(heatRing);
-
-      // Front Control Bezel & Dial Knobs
-      const controlPanel = new THREE.Mesh(
-        new THREE.BoxGeometry(0.86, 0.14, 0.03),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.65 })
+      // Outer Circular Black Burner Ring on Red Stove Top
+      const outerBurnerRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.33, 0.026, 10, 32),
+        blackIronMat
       );
-      controlPanel.position.set(0, 0.68, 0.472);
-      group.add(controlPanel);
+      outerBurnerRing.rotation.x = Math.PI / 2;
+      outerBurnerRing.position.y = 0.852;
+      group.add(outerBurnerRing);
 
-      const knobGeo = new THREE.CylinderGeometry(0.042, 0.042, 0.035, 14);
-      const knobMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.25 });
-      [-0.24, 0, 0.24].forEach((kx) => {
-        const knob = new THREE.Mesh(knobGeo, knobMat);
-        knob.rotation.x = Math.PI / 2;
-        knob.position.set(kx, 0.68, 0.49);
-        group.add(knob);
+      // Central Black Burner Disc
+      const centerBurnerDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.19, 0.19, 0.022, 24),
+        blackIronMat
+      );
+      centerBurnerDisc.position.y = 0.850;
+      group.add(centerBurnerDisc);
+
+      // 4 Radial Black Grate Prongs (Diagonal X-pattern like Reference Image 1!)
+      [Math.PI / 4, -Math.PI / 4].forEach((rotY) => {
+        const prong = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.028, 0.042), blackIronMat);
+        prong.position.y = 0.856;
+        prong.rotation.y = rotY;
+        group.add(prong);
       });
 
-      // Warm Glowing Oven Door Window on front face
-      const ovenDoorFrame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.76, 0.42, 0.028),
-        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.7 })
+      // Lower Front Recessed Grey Control Panel Strip + Left Red Switch + Right Chunky Black Dial Knob (Matches Image 1!)
+      const controlStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.78, 0.16, 0.025),
+        new THREE.MeshStandardMaterial({ color: 0x7c858e, roughness: 0.4, metalness: 0.5 })
       );
-      ovenDoorFrame.position.set(0, 0.34, 0.472);
-      group.add(ovenDoorFrame);
+      controlStrip.position.set(0, 0.14, 0.475);
+      group.add(controlStrip);
 
-      const ovenWindow = new THREE.Mesh(
-        new THREE.BoxGeometry(0.56, 0.24, 0.032),
-        new THREE.MeshStandardMaterial({
-          color: 0xf97316,
-          emissive: 0xea580c,
-          emissiveIntensity: 0.42,
-          roughness: 0.15
-        })
+      // Small red indicator button on left of control strip
+      const redSwitch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.03, 14),
+        new THREE.MeshStandardMaterial({ color: 0xd62828, emissive: 0x991b1b, emissiveIntensity: 0.3, roughness: 0.3 })
       );
-      ovenWindow.position.set(0, 0.33, 0.475);
-      group.add(ovenWindow);
+      redSwitch.rotation.x = Math.PI / 2;
+      redSwitch.position.set(-0.20, 0.13, 0.492);
+      group.add(redSwitch);
 
-      // Heavy Frying Pan (CC0 frying-pan.glb)
+      // Large chunky black rotary knob on right of control strip
+      const blackKnob = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.068, 0.078, 0.06, 18),
+        new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35, metalness: 0.4 })
+      );
+      blackKnob.rotation.x = Math.PI / 2;
+      blackKnob.position.set(0.20, 0.13, 0.505);
+      group.add(blackKnob);
+
+      // Cast-Iron Frying Pan sitting on burner with Glowing Red Center Heat Spot & Wooden Handle (Matches Image 1 Row 3 Right!)
       const panGroup = new THREE.Group();
       panGroup.position.set(0, 0.862, 0);
 
-      const fallbackPan = new THREE.Group();
-      const panBody = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.28, 0.24, 0.07, 18),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.85 })
-      );
-      panBody.position.y = 0.035;
-      panBody.castShadow = true;
-      fallbackPan.add(panBody);
+      const panMat = new THREE.MeshStandardMaterial({ color: 0x26292e, roughness: 0.42, metalness: 0.72 });
+      const panBase = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 0.065, 24), panMat);
+      panBase.position.y = 0.032;
+      panBase.castShadow = true;
+      panGroup.add(panBase);
 
-      const panHandle = new THREE.Mesh(
-        new THREE.BoxGeometry(0.28, 0.025, 0.04),
-        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
+      // Inner dark pan floor
+      const panInner = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.23, 0.01, 24),
+        new THREE.MeshStandardMaterial({ color: 0x181a1d, roughness: 0.5, metalness: 0.6 })
       );
-      panHandle.position.set(0.38, 0.05, 0);
-      fallbackPan.add(panHandle);
+      panInner.position.y = 0.062;
+      panGroup.add(panInner);
 
-      ExternalModelLoader.attachModel(
-        panGroup,
-        ExternalModelLoader.PATHS.FRYING_PAN,
-        { targetWidth: 0.72, offsetX: 0.06 },
-        fallbackPan
+      // Red Center Heat Spot inside the pan (Matches Image 1 Row 3 Right!)
+      const heatRingMat = new THREE.MeshStandardMaterial({
+        color: 0xd62828,
+        emissive: 0xb91c1c,
+        emissiveIntensity: 0.65,
+        roughness: 0.35
+      });
+      const centerHeatSpot = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.012, 18), heatRingMat);
+      centerHeatSpot.position.y = 0.064;
+      panGroup.add(centerHeatSpot);
+
+      // Angled Warm Brown Wooden Pan Handle sticking out to front-right (Matches Image 1 Row 3 Right!)
+      const handleGroup = new THREE.Group();
+      handleGroup.rotation.y = -Math.PI / 3;
+      const woodHandle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.026, 0.034, 0.34, 12),
+        new THREE.MeshStandardMaterial({ color: 0x7c4a27, roughness: 0.55 })
       );
+      woodHandle.rotation.z = Math.PI / 2;
+      woodHandle.position.set(0.41, 0.065, 0);
+      woodHandle.castShadow = true;
+      handleGroup.add(woodHandle);
+      panGroup.add(handleGroup);
 
       group.add(panGroup);
 
@@ -1356,348 +1340,220 @@ export class KitchenMap3D {
       group.add(prog.progressGroup);
       return { ...prog, heatRingMat };
     }
-    // 3. DELIVERY WINDOW COUNTER (Bistro Conveyor Belt, Service Bell & Striped Pass-Through Frame)
+    // 3. DELIVERY WINDOW COUNTER (Matches Reference Image 1 Row 1 Right: Silver Tray with Black Triangles + Overhead Dark Metal Frame with Red Domed Cloche!)
     else if (type === CounterType.DELIVERY) {
-      // Glowing emerald conveyor surface
-      const matMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.94, 0.032, 0.94),
-        new THREE.MeshStandardMaterial({
-          color: 0x10b981,
-          emissive: 0x059669,
-          emissiveIntensity: 0.38,
-          roughness: 0.25
-        })
-      );
-      matMesh.position.y = 0.855;
+      // Recessed Brushed Stainless Tray
+      const trayMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        roughness: 0.22,
+        metalness: 0.78
+      });
+      const matMesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.025, 0.88), trayMat);
+      matMesh.position.y = 0.848;
       group.add(matMesh);
 
-      // Stainless steel conveyor roller ribs
-      const rollerMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.25, metalness: 0.8 });
-      for (let rz = -0.32; rz <= 0.32; rz += 0.16) {
-        const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 10), rollerMat);
-        roller.rotation.z = Math.PI / 2;
-        roller.position.set(0, 0.872, rz);
-        group.add(roller);
-      }
-
-      // Animated glowing white chevron arrow pointing north
-      const arrowGeo = new THREE.ConeGeometry(0.22, 0.38, 3);
-      const arrowMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: 0xffffff,
-        emissiveIntensity: 0.75
-      });
-      const arrow = new THREE.Mesh(arrowGeo, arrowMat);
-      arrow.rotation.x = Math.PI / 2;
-      arrow.position.set(0, 0.888, -0.05);
+      // Black Directional Triangle Arrow on Silver Tray pointing North (Matches Image 1 Row 1 Right!)
+      const triShape = new THREE.Shape();
+      triShape.moveTo(0, 0.16);
+      triShape.lineTo(-0.18, -0.10);
+      triShape.lineTo(0.18, -0.10);
+      triShape.closePath();
+      const triGeo = new THREE.ExtrudeGeometry(triShape, { depth: 0.008, bevelEnabled: false });
+      const triMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.5 });
+      const arrow = new THREE.Mesh(triGeo, triMat);
+      arrow.rotation.x = -Math.PI / 2;
+      arrow.position.set(0, 0.862, 0.08);
       group.add(arrow);
 
-      // Polished Brass Service Bell 🛎️ on corner
-      const bellBase = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.09, 0.02, 16),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8 })
-      );
-      bellBase.position.set(-0.35, 0.875, 0.32);
-      group.add(bellBase);
-
-      const bellDome = new THREE.Mesh(
-        new THREE.SphereGeometry(0.07, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-        new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.9, roughness: 0.15 })
-      );
-      bellDome.position.set(-0.35, 0.885, 0.32);
-      bellDome.castShadow = true;
-      group.add(bellDome);
-      return { deliveryArrowMesh: arrow };
-    }
-    // 4. COMMERCIAL PEDAL TRASH CAN (With Hinged Animated Swing Lid)
-    else if (type === CounterType.TRASH) {
-      // Cylinder Ribbed Trash Can
-      const binGeo = new THREE.CylinderGeometry(0.36, 0.34, 0.78, 20);
-      const binMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.2 });
-      const bin = new THREE.Mesh(binGeo, binMat);
-      bin.position.y = 0.42;
-      bin.castShadow = true;
-      group.add(bin);
-
-      // Dark Inner Liner Cavity (visible when lid flips open)
-      const innerCavity = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.32, 0.30, 0.04, 18),
-        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
-      );
-      innerCavity.position.y = 0.805;
-      group.add(innerCavity);
-
-      // Side Carry Handles
-      const handleMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.6 });
-      [-0.37, 0.37].forEach((hx) => {
-        const sideHandle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.16), handleMat);
-        sideHandle.position.set(hx, 0.68, 0);
-        group.add(sideHandle);
+      // Overhead Dark Metal Pass-Through Gantry Frame & Red Domed Heat Cloche (Matches Image 1 Row 1 Right!)
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x3b4048, roughness: 0.45, metalness: 0.65 });
+      [-0.44, 0.44].forEach((px) => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.56, 0.06), frameMat);
+        post.position.set(px, 1.12, -0.18);
+        post.castShadow = true;
+        group.add(post);
       });
 
-      // Hinged Chrome Swing Lid Group (pivoted at back edge z = -0.34, y = 0.83)
-      const lidMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.82, roughness: 0.15 });
+      const topBeamFront = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.06, 0.06), frameMat);
+      topBeamFront.position.set(0, 1.38, -0.02);
+      group.add(topBeamFront);
+
+      const topBeamBack = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.06, 0.06), frameMat);
+      topBeamBack.position.set(0, 1.38, -0.34);
+      group.add(topBeamBack);
+
+      [-0.44, 0.44].forEach((px) => {
+        const sideCross = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.38), frameMat);
+        sideCross.position.set(px, 1.38, -0.18);
+        group.add(sideCross);
+      });
+
+      // Glossy Red Domed Service Cloche hanging in the upper rack (Matches Image 1 Row 1 Right!)
+      const clocheMat = new THREE.MeshStandardMaterial({ color: 0x9e241b, roughness: 0.25, metalness: 0.35 });
+      const clocheDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.24, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        clocheMat
+      );
+      clocheDome.position.set(0, 1.32, -0.18);
+      clocheDome.castShadow = true;
+      group.add(clocheDome);
+
+      const clocheRim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 10, 24), clocheMat);
+      clocheRim.rotation.x = Math.PI / 2;
+      clocheRim.position.set(0, 1.32, -0.18);
+      group.add(clocheRim);
+
+      const clocheKnob = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.04, 14), clocheMat);
+      clocheKnob.position.set(0, 1.56, -0.18);
+      group.add(clocheKnob);
+
+      return { deliveryArrowMesh: arrow };
+    }
+    // 4. SQUARE GREEN & BRUSHED-SILVER FUNNEL TRASH BIN (Matches Reference Image 1 Row 2 Col 2!)
+    else if (type === CounterType.TRASH) {
+      // Dark Forest-Green Square Box Base (#284226)
+      const greenBaseMat = new THREE.MeshStandardMaterial({ color: 0x284226, roughness: 0.52, metalness: 0.12 });
+      const baseBox = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.68, 0.92), greenBaseMat);
+      baseBox.position.y = 0.34;
+      baseBox.castShadow = true;
+      baseBox.receiveShadow = true;
+      group.add(baseBox);
+
+      // Beveled Brushed-Silver Square Funnel Rim on Top (#d1d5db)
+      const silverRimMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.25, metalness: 0.72 });
       const trashLidGroup = new THREE.Group();
-      trashLidGroup.position.set(0, 0.83, -0.34);
+      trashLidGroup.position.set(0, 0.72, 0);
 
-      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.06, 20), lidMat);
-      lid.position.set(0, 0, 0.34);
-      lid.castShadow = true;
-      trashLidGroup.add(lid);
+      const borderW = 0.14;
+      const rimH = 0.12;
+      const frontRim = new THREE.Mesh(new THREE.BoxGeometry(0.80, rimH, borderW), silverRimMat);
+      frontRim.position.set(0, 0, 0.33);
+      frontRim.castShadow = true;
+      trashLidGroup.add(frontRim);
 
-      const lidHandle = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.015, 8, 16, Math.PI), lidMat);
-      lidHandle.rotation.x = Math.PI / 2;
-      lidHandle.position.set(0, 0.04, 0.34);
-      trashLidGroup.add(lidHandle);
+      const backRim = new THREE.Mesh(new THREE.BoxGeometry(0.80, rimH, borderW), silverRimMat);
+      backRim.position.set(0, 0, -0.33);
+      backRim.castShadow = true;
+      trashLidGroup.add(backRim);
+
+      const leftRim = new THREE.Mesh(new THREE.BoxGeometry(borderW, rimH, 0.52), silverRimMat);
+      leftRim.position.set(-0.33, 0, 0);
+      leftRim.castShadow = true;
+      trashLidGroup.add(leftRim);
+
+      const rightRim = new THREE.Mesh(new THREE.BoxGeometry(borderW, rimH, 0.52), silverRimMat);
+      rightRim.position.set(0.33, 0, 0);
+      rightRim.castShadow = true;
+      trashLidGroup.add(rightRim);
 
       group.add(trashLidGroup);
 
-      // Chrome Foot Pedal
-      const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.12), lidMat);
-      pedal.position.set(0, 0.04, 0.40);
-      group.add(pedal);
+      // Deep Pitch-Black Square Trash Opening in Center
+      const holeMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.54, 0.04, 0.54),
+        new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.95 })
+      );
+      holeMesh.position.y = 0.69;
+      group.add(holeMesh);
+
       return { trashLidGroup };
     }
-    // 5. OVERCOOKED-STYLE 3D INGREDIENT STORAGE BIN CABINETS WITH:
-    //    - Zone A: Multi-compartment wooden cabinet + angled pull-out ingredient chute holding 3D ingredients inside!
-    //    - Zone B: Completely FLAT top surface at y = 0.842 with 2D Cartoon Ingredient Artwork Decal & 6 placement slots!
+    // 5. OVERCOOKED-STYLE PLATE COUNTER & INGREDIENT STORAGE CRATES (Matches Reference Image 1 Row 2 Center & Row 3 Left!)
     else if (type.startsWith('crate_')) {
-      let badgeColor = 0xd97706;
-      let badgeEmoji = '🍞';
-      let stationTitle = 'BÁNH MÌ';
-      let itemType = IngredientType.BREAD;
-      let linerColor = 0xfef3c7; // Warm bakery cloth
-      let topSurfaceColor = 0xfef9c3;
+      const woodBodyMat = new THREE.MeshStandardMaterial({ color: 0x63391c, roughness: 0.55, metalness: 0.05 });
+      const woodFrameMat = new THREE.MeshStandardMaterial({ color: 0x7c4a27, roughness: 0.5, metalness: 0.06 });
+      const darkSeamMat = new THREE.MeshStandardMaterial({ color: 0x3b1f0c, roughness: 0.7 });
+      const chromeHandleMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.85 });
 
-      if (type === CounterType.CRATE_MEAT) {
-        badgeColor = 0xef4444;
-        badgeEmoji = '🥩';
-        stationTitle = 'THỊT BÒ';
-        itemType = IngredientType.RAW_MEAT;
-        linerColor = 0xe0f2fe; // Chilled butcher ice tray
-        topSurfaceColor = 0xf8fafc;
-      } else if (type === CounterType.CRATE_LETTUCE) {
-        badgeColor = 0x22c55e;
-        badgeEmoji = '🥬';
-        stationTitle = 'XÀ LÁCH';
-        itemType = IngredientType.LETTUCE;
-        linerColor = 0xdcfce7; // Fresh produce liner
-        topSurfaceColor = 0xf0fdf4;
-      } else if (type === CounterType.CRATE_TOMATO) {
-        badgeColor = 0xf43f5e;
-        badgeEmoji = '🍅';
-        stationTitle = 'CÀ CHUA';
-        itemType = IngredientType.TOMATO;
-        linerColor = 0xfef2f2;
-        topSurfaceColor = 0xfff1f2;
-      } else if (type === CounterType.CRATE_CHEESE) {
-        badgeColor = 0xfacc15;
-        badgeEmoji = '🧀';
-        stationTitle = 'PHÔ MAI';
-        itemType = IngredientType.CHEESE;
-        linerColor = 0xfef9c3;
-        topSurfaceColor = 0xfefce8;
-      } else if (type === CounterType.CRATE_PLATE) {
-        badgeColor = 0x38bdf8;
-        badgeEmoji = '🍽️';
-        stationTitle = 'ĐĨA SỨ';
-        itemType = IngredientType.PLATE;
-        linerColor = 0x334155;
-        topSurfaceColor = 0xf1f5f9;
-      }
-
-      const woodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.62 });
-      const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.68 });
-      const brassMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.25, metalness: 0.85 });
-      const accentMat = new THREE.MeshStandardMaterial({
-        color: badgeColor,
-        roughness: 0.32,
-        emissive: badgeColor,
-        emissiveIntensity: 0.15
-      });
-      const linerMat = new THREE.MeshStandardMaterial({ color: linerColor, roughness: 0.42 });
-      const flatTopMat = new THREE.MeshStandardMaterial({
-        color: topSurfaceColor,
-        roughness: 0.28,
-        metalness: 0.08
-      });
-
-      // 1. Sturdy Wooden Bin Cabinet Cladding around body (y = 0.08 to 0.76)
-      const binShell = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.70, 0.96), woodMat);
+      // 1. Sturdy Warm-Brown Wooden Crate Box Body (y = 0.0 to 0.82)
+      const binShell = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.82, 0.96), woodBodyMat);
       binShell.position.y = 0.41;
       binShell.castShadow = true;
       binShell.receiveShadow = true;
       group.add(binShell);
 
-      // 4 Reinforced Corner Pillars + Brass Corner Caps
-      const cornerCoords = [
-        [-0.46, -0.46],
-        [0.46, -0.46],
-        [-0.46, 0.46],
-        [0.46, 0.46]
-      ];
-      cornerCoords.forEach(([cx, cz]) => {
-        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.74, 0.08), darkWoodMat);
-        pillar.position.set(cx, 0.41, cz);
-        group.add(pillar);
+      // Horizontal Wooden Crate Seam & Front Drawer Handle (Matches Image 1 Row 2 Center & Row 3 Left!)
+      const frontSeam = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.022, 0.98), darkSeamMat);
+      frontSeam.position.y = 0.24;
+      group.add(frontSeam);
 
-        const brassCap = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.09), brassMat);
-        brassCap.position.set(cx, 0.77, cz);
-        group.add(brassCap);
-      });
+      // PLATE STATION (Matches Reference Image 1 Row 3 Col 1: Brown Drawer Counter with Large White Ceramic Plate on Top!)
+      if (type === CounterType.CRATE_PLATE) {
+        const flatWoodTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 1.0), woodFrameMat);
+        flatWoodTop.position.y = 0.825;
+        flatWoodTop.receiveShadow = true;
+        group.add(flatWoodTop);
 
-      // 2. FLAT PLACEMENT COUNTERTOP SURFACE AT Y = 0.840 (100% flat, never blocks placed items!)
-      const flatWorktop = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.012, 0.96), flatTopMat);
-      flatWorktop.position.y = 0.840;
-      flatWorktop.receiveShadow = true;
-      group.add(flatWorktop);
+        // Front silver drawer handle
+        const uHandle = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.026, 0.045), chromeHandleMat);
+        uHandle.position.set(0, 0.14, 0.49);
+        group.add(uHandle);
 
-      // Flush color-coded border trim around the flat top perimeter (y = 0.841, flush with top)
-      const trimH = 0.014;
-      const trimFront = new THREE.Mesh(new THREE.BoxGeometry(1.0, trimH, 0.05), accentMat);
-      trimFront.position.set(0, 0.840, 0.475);
-      group.add(trimFront);
+        // Large Clean White Ceramic Plate with Recessed Inner Rim on Top (Matches Image 1 Row 3 Col 1!)
+        const crateDisplayGroup = new THREE.Group();
+        crateDisplayGroup.position.set(0, 0.846, 0);
 
-      const trimBack = new THREE.Mesh(new THREE.BoxGeometry(1.0, trimH, 0.05), accentMat);
-      trimBack.position.set(0, 0.840, -0.475);
-      group.add(trimBack);
+        const outerRim = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.36, 0.32, 0.024, 28),
+          new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.1 })
+        );
+        outerRim.castShadow = true;
+        outerRim.receiveShadow = true;
+        crateDisplayGroup.add(outerRim);
 
-      const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.05, trimH, 0.92), accentMat);
-      trimLeft.position.set(-0.475, 0.840, 0);
-      group.add(trimLeft);
+        const innerWell = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.25, 0.24, 0.026, 28),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15 })
+        );
+        innerWell.position.y = 0.002;
+        crateDisplayGroup.add(innerWell);
 
-      const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.05, trimH, 0.92), accentMat);
-      trimRight.position.set(0.475, 0.840, 0);
-      group.add(trimRight);
+        group.add(crateDisplayGroup);
+        return { crateDisplayGroup };
+      }
 
-      // 3. 2D CARTOON INGREDIENT ILLUSTRATION DECAL ON TOP SURFACE (PHẦN 2.2)
-      // Replaces the old plain 2D circles with rich cartoon illustrations of the ingredient!
-      // Purely decorative (raycast disabled, 0 collision thickness) so placed items sit cleanly on top.
-      const decalGeo = new THREE.PlaneGeometry(0.86, 0.86);
+      // INGREDIENT STORAGE CRATE (Matches Reference Image 1 Row 2 Center:
+      // Warm Wooden Picture-Frame Top Border + Recessed Dark Panel + White Circle Medallion with Bold 2D Cartoon Ingredient Illustration!)
+      const frameH = 0.026;
+      const frameW = 0.085;
+      const frameFront = new THREE.Mesh(new THREE.BoxGeometry(1.0, frameH, frameW), woodFrameMat);
+      frameFront.position.set(0, 0.835, 0.457);
+      frameFront.receiveShadow = true;
+      group.add(frameFront);
+
+      const frameBack = new THREE.Mesh(new THREE.BoxGeometry(1.0, frameH, frameW), woodFrameMat);
+      frameBack.position.set(0, 0.835, -0.457);
+      frameBack.receiveShadow = true;
+      group.add(frameBack);
+
+      const frameLeft = new THREE.Mesh(new THREE.BoxGeometry(frameW, frameH, 0.83), woodFrameMat);
+      frameLeft.position.set(-0.457, 0.835, 0);
+      frameLeft.receiveShadow = true;
+      group.add(frameLeft);
+
+      const frameRight = new THREE.Mesh(new THREE.BoxGeometry(frameW, frameH, 0.83), woodFrameMat);
+      frameRight.position.set(0.457, 0.835, 0);
+      frameRight.receiveShadow = true;
+      group.add(frameRight);
+
+      // Top Surface Decal with Recessed Dark Wood + White Circular Plate + Bold 2D Cartoon Ingredient Artwork!
+      // Purely decorative (raycast disabled) so up to 6 items can be placed cleanly on top!
+      const decalGeo = new THREE.PlaneGeometry(0.84, 0.84);
       const decalMat = new THREE.MeshStandardMaterial({
         map: TextureGenerator3D.getIngredientBinTopDecalTexture(type),
-        roughness: 0.32,
-        metalness: 0.05,
+        roughness: 0.35,
+        metalness: 0.04,
         polygonOffset: true,
         polygonOffsetFactor: -1
       });
       const decalMesh = new THREE.Mesh(decalGeo, decalMat);
       decalMesh.rotation.x = -Math.PI / 2;
-      decalMesh.position.set(0, 0.847, 0);
+      decalMesh.position.set(0, 0.842, 0);
       decalMesh.receiveShadow = true;
-      decalMesh.raycast = () => {}; // Purely decorative, never intercepts raycasts or physics
+      decalMesh.raycast = () => {};
       group.add(decalMesh);
 
-      // For CRATE_PLATE, add 4 sleek corner chrome guide rods at the very outer corners (leaves center free)
-      if (type === CounterType.CRATE_PLATE) {
-        const chromeRodMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.15, metalness: 0.9 });
-        [
-          [-0.41, -0.41],
-          [0.41, -0.41],
-          [-0.41, 0.41],
-          [0.41, 0.41]
-        ].forEach(([rx, rz]) => {
-          const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.10, 10), chromeRodMat);
-          rod.position.set(rx, 0.89, rz);
-          group.add(rod);
-        });
-      }
-
-      // 4. ANGLED INTERIOR INGREDIENT STORAGE DRAWER / CHUTE (Built into kitchen-facing side of the bin!)
-      let drawerDirRotY = 0; // Default +Z (front)
-      if (x < -2.5) {
-        drawerDirRotY = Math.PI / 2; // Left column (-4): faces +X toward kitchen center
-      } else if (x > 2.5) {
-        drawerDirRotY = -Math.PI / 2; // Right column (+4): faces -X toward kitchen center
-      } else if (z > 2.0) {
-        drawerDirRotY = Math.PI; // Bottom row (+3): faces -Z toward kitchen center
-      }
-
-      const drawerAnchor = new THREE.Group();
-      drawerAnchor.rotation.y = drawerDirRotY;
-      group.add(drawerAnchor);
-
-      // Lower ventilation louvers & brass label frame below the pull-out drawer
-      for (let lv = 0; lv < 2; lv++) {
-        const louver = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.03, 0.025), darkWoodMat);
-        louver.position.set(0, 0.16 + lv * 0.07, 0.482);
-        drawerAnchor.add(louver);
-      }
-
-      const crateDisplayGroup = new THREE.Group();
-      // Positioned in the upper-middle front bay of the bin cabinet (y = 0.48, z = +0.34)
-      crateDisplayGroup.position.set(0, 0.48, 0.34);
-      crateDisplayGroup.rotation.x = 0.38;
-      drawerAnchor.add(crateDisplayGroup);
-
-      // Drawer box pocket
-      const drawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.05, 0.38), linerMat);
-      drawerFloor.position.set(0, 0, 0);
-      crateDisplayGroup.add(drawerFloor);
-
-      const drawerLip = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.16, 0.045), darkWoodMat);
-      drawerLip.position.set(0, 0.06, 0.18);
-      crateDisplayGroup.add(drawerLip);
-
-      const drawerAccent = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.035, 0.055), accentMat);
-      drawerAccent.position.set(0, 0.14, 0.18);
-      crateDisplayGroup.add(drawerAccent);
-
-      // Brass drawer pull handle on front of chute
-      const pullBar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.028, 0.035), brassMat);
-      pullBar.position.set(0, 0.07, 0.215);
-      crateDisplayGroup.add(pullBar);
-
-      const drawerSideL = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.38), darkWoodMat);
-      drawerSideL.position.set(-0.36, 0.07, 0);
-      crateDisplayGroup.add(drawerSideL);
-
-      const drawerSideR = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.38), darkWoodMat);
-      drawerSideR.position.set(0.36, 0.07, 0);
-      crateDisplayGroup.add(drawerSideR);
-
-      // Abundant 3D Ingredient Models inside the bin drawer chute!
-      if (type === CounterType.CRATE_PLATE) {
-        for (let p = 0; p < 4; p++) {
-          const plateSample = Ingredient3DFactory.createMeshFromType(IngredientType.PLATE);
-          plateSample.position.set(0, 0.03 + p * 0.038, 0.02);
-          plateSample.scale.setScalar(0.68);
-          crateDisplayGroup.add(plateSample);
-        }
-      } else {
-        const placements = [
-          { x: -0.17, y: 0.03, z: -0.03, rotY: 0.2, scale: 0.65 },
-          { x: 0.17, y: 0.03, z: -0.03, rotY: 1.4, scale: 0.65 },
-          { x: -0.11, y: 0.06, z: 0.06, rotY: 2.3, scale: 0.68 },
-          { x: 0.11, y: 0.06, z: 0.06, rotY: 3.6, scale: 0.68 },
-          { x: 0.0, y: 0.11, z: 0.02, rotY: 0.7, scale: 0.74 }
-        ];
-        placements.forEach((pl) => {
-          const sample = Ingredient3DFactory.createMeshFromType(itemType);
-          sample.position.set(pl.x, pl.y, pl.z);
-          sample.rotation.set(0, pl.rotY, 0);
-          sample.scale.setScalar(pl.scale);
-          crateDisplayGroup.add(sample);
-        });
-      }
-
-      // 5. Front Icon Badge + Non-Occluding Outer-Edge Label Signboard (never blocks the flat top surface!)
-      this.createCrateSignBadge(group, badgeEmoji, badgeColor);
-      let labelOffsetX = 0;
-      let labelOffsetZ = -0.38;
-      if (x < -2.5) {
-        labelOffsetX = -0.48; // Offset to outer left wall edge
-        labelOffsetZ = 0;
-      } else if (x > 2.5) {
-        labelOffsetX = 0.48;  // Offset to outer right wall edge
-        labelOffsetZ = 0;
-      } else if (z > 2.0) {
-        labelOffsetX = 0;
-        labelOffsetZ = 0.46;  // Offset to outer bottom edge
-      }
-      this.createFloatingStationLabel(group, badgeEmoji, stationTitle, badgeColor, labelOffsetX, labelOffsetZ);
-
-      return { crateDisplayGroup };
+      return {};
     }
 
     return {};
