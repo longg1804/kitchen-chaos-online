@@ -5,6 +5,7 @@ import { MaterialFactory } from './MaterialFactory';
 import { Physics3D } from '../core/Physics3D';
 import { TextureGenerator3D } from './TextureGenerator3D';
 import { Ingredient3DFactory } from '../entities/Ingredient3D';
+import { ExternalModelLoader } from '../assets/ExternalModelLoader';
 
 export interface Counter3DData {
   id: string;
@@ -165,14 +166,36 @@ export class KitchenMap3D {
       this.roomGroup.add(bracket);
     }
 
-    // Decorative spice jars and olive oil bottles on shelf
+    // Decorative CC0 3D bottles, shakers, stew pot & appliances on back shelf
+    const shelfProps = [
+      { path: ExternalModelLoader.PATHS.BOTTLE_KETCHUP, width: 0.22 },
+      { path: ExternalModelLoader.PATHS.BOTTLE_MUSTARD, width: 0.22 },
+      { path: ExternalModelLoader.PATHS.BOTTLE_OIL, width: 0.22 },
+      { path: ExternalModelLoader.PATHS.SHAKER_SALT, width: 0.18 },
+      { path: ExternalModelLoader.PATHS.SHAKER_PEPPER, width: 0.18 },
+      { path: ExternalModelLoader.PATHS.POT_STEW, width: 0.42 },
+      { path: ExternalModelLoader.PATHS.BLENDER, width: 0.34 },
+      { path: ExternalModelLoader.PATHS.COFFEE_MACHINE, width: 0.36 }
+    ];
     const jarColors = [0xef4444, 0x22c55e, 0xfacc15, 0x0284c7, 0xf97316];
-    for (let j = 0; j < 8; j++) {
-      const jarMat = new THREE.MeshStandardMaterial({ color: jarColors[j % jarColors.length], roughness: 0.3 });
-      const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.28, 12), jarMat);
-      jar.position.set(-3.5 + j * 0.9, 2.38, -4.3);
-      jar.castShadow = true;
-      this.roomGroup.add(jar);
+    for (let j = 0; j < shelfProps.length; j++) {
+      const propSlot = new THREE.Group();
+      propSlot.position.set(-3.5 + j * 0.95, 2.24, -4.3);
+      this.roomGroup.add(propSlot);
+
+      const fallbackJar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.1, 0.28, 12),
+        new THREE.MeshStandardMaterial({ color: jarColors[j % jarColors.length], roughness: 0.3 })
+      );
+      fallbackJar.position.y = 0.14;
+      fallbackJar.castShadow = true;
+
+      ExternalModelLoader.attachModel(
+        propSlot,
+        shelfProps[j].path,
+        { targetWidth: shelfProps[j].width },
+        fallbackJar
+      );
     }
   }
 
@@ -498,12 +521,20 @@ export class KitchenMap3D {
               // Gradual visual color transition on RAW_MEAT while COOKING (Ruby Red -> Seared Golden-Brown!)
               const rawColor = new THREE.Color(0xef4444);
               const cookedColor = new THREE.Color(0xc26a1b);
+              const whiteTint = new THREE.Color(0xffffff);
+              const searedTint = new THREE.Color(0xd97706);
               const rawFatColor = new THREE.Color(0xfecaca);
               const cookedFatColor = new THREE.Color(0xfde68a);
               c.itemHolder.traverse((child) => {
                 if (child instanceof THREE.Mesh) {
                   if (child.userData.isCookingMeat && child.material instanceof THREE.MeshStandardMaterial) {
-                    child.material.color.lerpColors(rawColor, cookedColor, ratio * 0.85);
+                    if (child.userData.hasTextureMap) {
+                      child.material.color.lerpColors(whiteTint, searedTint, ratio * 0.85);
+                      child.material.emissive.setHex(0x451a03);
+                      child.material.emissiveIntensity = ratio * 0.25;
+                    } else {
+                      child.material.color.lerpColors(rawColor, cookedColor, ratio * 0.85);
+                    }
                   } else if (child.userData.isCookingFat && child.material instanceof THREE.MeshStandardMaterial) {
                     child.material.color.lerpColors(rawFatColor, cookedFatColor, ratio * 0.85);
                   }
@@ -675,24 +706,32 @@ export class KitchenMap3D {
     }
 
     // Decorative Cartoon Kitchen Appliances on non-interactive back-wall corner counters:
-    // Top-left corner (-4, -3): Cartoon Commercial Refrigerator
+    // Top-left corner (-4, -3): Cartoon Commercial Refrigerator (CC0 kitchenFridge.glb)
     if (id === 'counter_-4_-3') {
       const fridgeGroup = new THREE.Group();
+      const fallbackFridge = new THREE.Group();
       const fridgeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.25, metalness: 0.45 });
       const handleMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.2, metalness: 0.8 });
 
       const fridgeBody = new THREE.Mesh(new THREE.BoxGeometry(0.92, 1.35, 0.88), fridgeMat);
       fridgeBody.position.y = 1.48;
       fridgeBody.castShadow = true;
-      fridgeGroup.add(fridgeBody);
+      fallbackFridge.add(fridgeBody);
 
       const handleTop = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 0.06), handleMat);
       handleTop.position.set(0.32, 1.80, 0.46);
-      fridgeGroup.add(handleTop);
+      fallbackFridge.add(handleTop);
 
       const handleBot = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.06), handleMat);
       handleBot.position.set(0.32, 1.25, 0.46);
-      fridgeGroup.add(handleBot);
+      fallbackFridge.add(handleBot);
+
+      ExternalModelLoader.attachModel(
+        fridgeGroup,
+        ExternalModelLoader.PATHS.FRIDGE,
+        { targetWidth: 0.90, offsetY: 0.84 },
+        fallbackFridge
+      );
 
       group.add(fridgeGroup);
       return {};
@@ -730,31 +769,40 @@ export class KitchenMap3D {
       return {};
     }
 
-    // 1. CUTTING BOARD
+    // 1. CUTTING BOARD (CC0 cutting-board.glb & cooking-knife-chopping.glb)
     if (type === CounterType.CUTTING_BOARD) {
+      const boardContainer = new THREE.Group();
       const boardGeo = new THREE.BoxGeometry(0.74, 0.05, 0.58);
       const boardMat = new THREE.MeshStandardMaterial({
         map: TextureGenerator3D.getButcherBlockTexture(),
         roughness: 0.5,
         metalness: 0.05
       });
-      const board = new THREE.Mesh(boardGeo, boardMat);
-      board.position.set(0, 0.865, 0.02);
-      board.castShadow = true;
-      group.add(board);
+      const fallbackBoard = new THREE.Mesh(boardGeo, boardMat);
+      fallbackBoard.position.set(0, 0.865, 0.02);
+      fallbackBoard.castShadow = true;
+
+      ExternalModelLoader.attachModel(
+        boardContainer,
+        ExternalModelLoader.PATHS.CUTTING_BOARD,
+        { targetWidth: 0.74, offsetY: 0.842, offsetZ: 0.02 },
+        fallbackBoard
+      );
+      group.add(boardContainer);
 
       // Stainless Steel Chef Knife angled on board
       const knifeGroup = new THREE.Group();
-      knifeGroup.position.set(0.24, 0.90, 0.22);
+      knifeGroup.position.set(0.24, 0.895, 0.20);
       knifeGroup.rotation.y = -Math.PI / 6;
 
+      const fallbackKnife = new THREE.Group();
       // Steel Blade
       const blade = new THREE.Mesh(
         new THREE.BoxGeometry(0.32, 0.02, 0.06),
         new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.9 })
       );
       blade.castShadow = true;
-      knifeGroup.add(blade);
+      fallbackKnife.add(blade);
 
       // Wood Handle
       const handle = new THREE.Mesh(
@@ -762,7 +810,14 @@ export class KitchenMap3D {
         new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 })
       );
       handle.position.x = 0.22;
-      knifeGroup.add(handle);
+      fallbackKnife.add(handle);
+
+      ExternalModelLoader.attachModel(
+        knifeGroup,
+        ExternalModelLoader.PATHS.CHEF_KNIFE,
+        { targetWidth: 0.36, rotationZ: Math.PI / 2 },
+        fallbackKnife
+      );
 
       group.add(knifeGroup);
 
@@ -770,7 +825,7 @@ export class KitchenMap3D {
       group.add(prog.progressGroup);
       return { ...prog, boardKnifeGroup: knifeGroup };
     }
-    // 2. STOVE & FRYING PAN
+    // 2. STOVE & FRYING PAN (CC0 frying-pan.glb)
     else if (type === CounterType.STOVE) {
       // Cast Iron Burner Grate Frame
       const burnerFrame = new THREE.Mesh(
@@ -807,24 +862,32 @@ export class KitchenMap3D {
       knob2.position.set(0.2, 0.65, 0.48);
       group.add(knob2);
 
-      // Heavy Frying Pan
+      // Heavy Frying Pan (CC0 frying-pan.glb)
       const panGroup = new THREE.Group();
-      panGroup.position.set(0, 0.88, 0);
+      panGroup.position.set(0, 0.86, 0);
 
+      const fallbackPan = new THREE.Group();
       const panBody = new THREE.Mesh(
         new THREE.CylinderGeometry(0.28, 0.24, 0.07, 18),
         new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.85 })
       );
+      panBody.position.y = 0.035;
       panBody.castShadow = true;
-      panGroup.add(panBody);
+      fallbackPan.add(panBody);
 
-      // Pan Handle
       const panHandle = new THREE.Mesh(
         new THREE.BoxGeometry(0.28, 0.025, 0.04),
         new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
       );
-      panHandle.position.set(0.38, 0.02, 0);
-      panGroup.add(panHandle);
+      panHandle.position.set(0.38, 0.05, 0);
+      fallbackPan.add(panHandle);
+
+      ExternalModelLoader.attachModel(
+        panGroup,
+        ExternalModelLoader.PATHS.FRYING_PAN,
+        { targetWidth: 0.72, offsetX: 0.06 },
+        fallbackPan
+      );
 
       group.add(panGroup);
 
@@ -1075,18 +1138,11 @@ export class KitchenMap3D {
 
       // Abundant 3D Ingredient Models inside the bin drawer chute!
       if (type === CounterType.CRATE_PLATE) {
-        const plateMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.12, metalness: 0.15 });
-        const rimBlueMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2 });
         for (let p = 0; p < 4; p++) {
-          const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.19, 0.03, 20), plateMat);
-          pMesh.position.set(0, 0.04 + p * 0.036, 0.02);
-          pMesh.castShadow = true;
-          crateDisplayGroup.add(pMesh);
-
-          const pRim = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.01, 8, 20), rimBlueMat);
-          pRim.rotation.x = Math.PI / 2;
-          pRim.position.set(0, 0.052 + p * 0.036, 0.02);
-          crateDisplayGroup.add(pRim);
+          const plateSample = Ingredient3DFactory.createMeshFromType(IngredientType.PLATE);
+          plateSample.position.set(0, 0.03 + p * 0.038, 0.02);
+          plateSample.scale.setScalar(0.68);
+          crateDisplayGroup.add(plateSample);
         }
       } else {
         const placements = [
