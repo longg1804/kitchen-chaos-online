@@ -713,11 +713,15 @@ export class GameScene3D {
   }
 
   private updateContextualHUD() {
+    const isTouch = this.hud.isMobileTouchMode();
+
     // Priority 1: Player is holding the Fire Extinguisher -> Hold-to-Spray Foam button!
     if (this.heldItem && this.heldItem.type === IngredientType.FIRE_EXTINGUISHER) {
-      this.hud.updateContextualActionButton('🧯<br>PHUN BỌT', '#0ea5e9', true);
+      this.hud.updateContextualActionButton('🧯<br>Phun bọt', '#0ea5e9', true);
       this.hud.updateInteractionPrompt(
-        '🧯 Giữ <b>[Space]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[E]</b> Đặt bình xuống bàn',
+        isTouch
+          ? '🧯 Giữ nút <b>[Phun bọt]</b> để chữa cháy &nbsp;•&nbsp; <b>[Cầm/Thả]</b> Đặt bình'
+          : '🧯 Giữ <b>[Space]</b> để phun bọt chữa cháy &nbsp;•&nbsp; <b>[E]</b> Đặt bình xuống bàn',
         '#0ea5e9',
         true
       );
@@ -726,15 +730,15 @@ export class GameScene3D {
 
     const c = this.currentFacingCounter;
     if (!c) {
-      this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+      this.hud.updateContextualActionButton('🔪<br>Cắt/Nấu', '#475569', false);
       this.hud.updateInteractionPrompt('', '#38bdf8', false);
       return;
     }
 
     if (c.isOnFire) {
-      this.hud.updateContextualActionButton('🔥<br>ĐANG CHÁY', '#ef4444', false);
+      this.hud.updateContextualActionButton('🔥<br>Đang cháy', '#ef4444', false);
       this.hud.updateInteractionPrompt(
-        '🔥 Trạm đang bốc cháy! Hãy lấy <b>Bình Cứu Hỏa (🧯)</b> ở góc phải trên để dập lửa!',
+        '🔥 Trạm đang cháy! Hãy lấy <b>Bình Cứu Hỏa (🧯)</b> ở góc phải trên!',
         '#ef4444',
         true
       );
@@ -746,18 +750,24 @@ export class GameScene3D {
       const canPlaceAndChop = !c.currentItem && this.heldItem !== null && this.isChoppable(this.heldItem.type);
       const active = canChopBoard || canPlaceAndChop;
       this.hud.updateContextualActionButton(
-        '🔪<br>CẮT',
+        '🔪<br>Cắt',
         active ? '#f97316' : '#475569',
         active
       );
       if (active) {
         this.hud.updateInteractionPrompt(
-          '🔪 <b>[Space]</b> Cắt tự động &nbsp;•&nbsp; <b>[E]</b> Đặt / Lấy nguyên liệu',
+          isTouch
+            ? '🔪 Chạm <b>[Cắt]</b> để sơ chế &nbsp;•&nbsp; <b>[Cầm/Thả]</b> Đặt / Lấy'
+            : '🔪 <b>[Space]</b> Cắt tự động &nbsp;•&nbsp; <b>[E]</b> Đặt / Lấy nguyên liệu',
           '#f97316',
           true
         );
       } else if (c.currentItem && !this.heldItem) {
-        this.hud.updateInteractionPrompt('✋ <b>[E]</b> Nhặt nguyên liệu đã sơ chế', '#10b981', true);
+        this.hud.updateInteractionPrompt(
+          isTouch ? '✋ Chạm <b>[Cầm/Thả]</b> để nhặt nguyên liệu đã cắt' : '✋ <b>[E]</b> Nhặt nguyên liệu đã sơ chế',
+          '#10b981',
+          true
+        );
       } else {
         this.hud.updateInteractionPrompt('🔪 Thớt Sơ Chế — Đặt Rau / Cà Chua / Phô Mai để cắt', '#64748b', true);
       }
@@ -769,19 +779,21 @@ export class GameScene3D {
       const canPlaceAndCook = !c.currentItem && this.heldItem !== null && this.isCookable(this.heldItem.type);
       const active = canCookStove || canPlaceAndCook;
       this.hud.updateContextualActionButton(
-        '🍳<br>NẤU',
+        '🍳<br>Nấu',
         active ? '#ea580c' : '#475569',
         active
       );
       if (c.currentItem && !this.heldItem) {
         this.hud.updateInteractionPrompt(
-          '🍳 <b>[E]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Space]</b> Đảo thịt',
+          isTouch
+            ? '🍳 Chạm <b>[Cầm/Thả]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Nấu]</b> Đảo thịt'
+            : '🍳 <b>[E]</b> Nhặt thịt khỏi chảo &nbsp;•&nbsp; <b>[Space]</b> Đảo thịt',
           '#ea580c',
           true
         );
       } else if (canPlaceAndCook) {
         this.hud.updateInteractionPrompt(
-          '🍳 <b>[E / Space]</b> Đặt thịt lên chảo nướng',
+          isTouch ? '🍳 Chạm <b>[Cầm/Thả]</b> hoặc <b>[Nấu]</b> để đặt thịt lên chảo' : '🍳 <b>[E / Space]</b> Đặt thịt lên chảo nướng',
           '#ea580c',
           true
         );
@@ -793,21 +805,27 @@ export class GameScene3D {
 
     if (c.id === 'counter_1_-3') {
       // Sink
-      this.hud.updateContextualActionButton('💧<br>RỬA', '#0284c7', true);
-      this.hud.updateInteractionPrompt('💧 <b>[Space]</b> Rửa đĩa / Tráng tay tại Bồn Rửa', '#0284c7', true);
+      this.hud.updateContextualActionButton('💧<br>Rửa', '#0284c7', true);
+      this.hud.updateInteractionPrompt(
+        isTouch ? '💧 Chạm <b>[Rửa]</b> tại Bồn Rửa' : '💧 <b>[Space]</b> Rửa đĩa / Tráng tay tại Bồn Rửa',
+        '#0284c7',
+        true
+      );
       return;
     }
 
     if (c.type === CounterType.DELIVERY) {
       const canDeliver = this.heldItem !== null && this.heldItem.type === IngredientType.PLATE;
       this.hud.updateContextualActionButton(
-        '🛎️<br>GIAO MÓN',
+        '🛎️<br>Giao món',
         canDeliver ? '#10b981' : '#475569',
         canDeliver
       );
       this.hud.updateInteractionPrompt(
         canDeliver
-          ? '🛎️ <b>[E / Space]</b> Giao Đĩa Món Ăn hoàn chỉnh để nhận điểm!'
+          ? isTouch
+            ? '🛎️ Chạm <b>[Giao món]</b> hoặc <b>[Cầm/Thả]</b> để phục vụ!'
+            : '🛎️ <b>[E / Space]</b> Giao Đĩa Món Ăn hoàn chỉnh để nhận điểm!'
           : '🛎️ Quầy Giao Món — Hãy cầm Đĩa (🍽️) có món ăn hoàn chỉnh tới đây',
         canDeliver ? '#10b981' : '#64748b',
         true
@@ -816,9 +834,13 @@ export class GameScene3D {
     }
 
     if (c.type === CounterType.TRASH) {
-      this.hud.updateContextualActionButton('🗑️<br>BỎ RÁC', '#ef4444', Boolean(this.heldItem));
+      this.hud.updateContextualActionButton('🗑️<br>Bỏ rác', '#ef4444', Boolean(this.heldItem));
       this.hud.updateInteractionPrompt(
-        this.heldItem ? '🗑️ <b>[E]</b> Bỏ vật phẩm đang cầm vào Thùng Rác' : '🗑️ Thùng Rác',
+        this.heldItem
+          ? isTouch
+            ? '🗑️ Chạm <b>[Cầm/Thả]</b> để bỏ vật phẩm vào Thùng Rác'
+            : '🗑️ <b>[E]</b> Bỏ vật phẩm đang cầm vào Thùng Rác'
+          : '🗑️ Thùng Rác',
         '#ef4444',
         true
       );
@@ -826,42 +848,50 @@ export class GameScene3D {
     }
 
     // Ingredient Storage Bin contextual action (PHẦN 2.4 & PHẦN 3):
-    // Strict separation between taking raw ingredients from inside the bin ([E]) and surface items ([Space / F])!
+    // Strict separation between taking raw ingredients from inside the bin ([E] / Cầm/Thả) and surface items ([Space/F] / Nhặt mặt)!
     if (c.type.startsWith('crate_')) {
       const binName = this.getCrateDisplayName(c.type);
       const count = c.surfaceItems.length;
 
       if (!this.heldItem && count > 0) {
-        this.hud.updateContextualActionButton('✋<br>NHẶT MẶT BÀN', '#0ea5e9', true);
+        this.hud.updateContextualActionButton('✋<br>Nhặt mặt', '#0ea5e9', true);
         this.hud.updateInteractionPrompt(
-          `📦 <b>[E]</b> Lấy ${binName} từ thùng &nbsp;•&nbsp; ✋ <b>[Space / F]</b> Nhặt vật phẩm trên mặt thùng (${count}/6)`,
+          isTouch
+            ? `📦 <b>[Cầm/Thả]</b> Lấy ${binName} &nbsp;•&nbsp; ✋ <b>[Nhặt mặt]</b> Nhặt trên thùng (${count}/6)`
+            : `📦 <b>[E]</b> Lấy ${binName} từ thùng &nbsp;•&nbsp; ✋ <b>[Space / F]</b> Nhặt vật phẩm trên mặt thùng (${count}/6)`,
           '#0ea5e9',
           true
         );
         return;
       }
       if (!this.heldItem) {
-        this.hud.updateContextualActionButton('📦<br>LẤY NGUYÊN LIỆU', '#10b981', true);
+        this.hud.updateContextualActionButton('📦<br>Lấy đồ', '#10b981', true);
         this.hud.updateInteractionPrompt(
-          `📦 <b>[E / Space]</b> Lấy ${binName} mới từ trong thùng`,
+          isTouch
+            ? `📦 Chạm <b>[Cầm/Thả]</b> để lấy ${binName} từ thùng`
+            : `📦 <b>[E / Space]</b> Lấy ${binName} mới từ trong thùng`,
           '#10b981',
           true
         );
         return;
       }
       if (this.heldItem && count < 6) {
-        this.hud.updateContextualActionButton('🔄<br>ĐẶT & LẤY', '#0ea5e9', true);
+        this.hud.updateContextualActionButton('🔄<br>Đặt & Lấy', '#0ea5e9', true);
         this.hud.updateInteractionPrompt(
-          `📥 <b>[E]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Space]</b> Đặt lên mặt & Lấy ${binName}`,
+          isTouch
+            ? `📥 <b>[Cầm/Thả]</b> Đặt lên thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Đặt & Lấy]</b> Lấy ${binName}`
+            : `📥 <b>[E]</b> Đặt lên mặt thùng (${count}/6) &nbsp;•&nbsp; 🔄 <b>[Space]</b> Đặt lên mặt & Lấy ${binName}`,
           '#10b981',
           true
         );
         return;
       }
       if (this.heldItem && count >= 6) {
-        this.hud.updateContextualActionButton('📥<br>ĐẶT KẾ BÊN', '#f59e0b', true);
+        this.hud.updateContextualActionButton('📥<br>Đặt cạnh', '#f59e0b', true);
         this.hud.updateInteractionPrompt(
-          `📦 Mặt thùng đã đầy (6/6) — <b>[E]</b> Tự động đặt sang bàn trống kế bên`,
+          isTouch
+            ? `📦 Mặt thùng đầy (6/6) — Chạm <b>[Cầm/Thả]</b> đặt sang bàn kế bên`
+            : `📦 Mặt thùng đã đầy (6/6) — <b>[E]</b> Tự động đặt sang bàn trống kế bên`,
           '#f59e0b',
           true
         );
@@ -870,13 +900,25 @@ export class GameScene3D {
     }
 
     // Regular Countertop prompts
-    this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+    this.hud.updateContextualActionButton('🔪<br>Cắt/Nấu', '#475569', false);
     if (!this.heldItem && c.currentItem) {
-      this.hud.updateInteractionPrompt('✋ <b>[E]</b> Nhặt vật phẩm trên mặt bàn', '#38bdf8', true);
+      this.hud.updateInteractionPrompt(
+        isTouch ? '✋ Chạm <b>[Cầm/Thả]</b> để nhặt vật phẩm trên bàn' : '✋ <b>[E]</b> Nhặt vật phẩm trên mặt bàn',
+        '#38bdf8',
+        true
+      );
     } else if (this.heldItem && !c.currentItem) {
-      this.hud.updateInteractionPrompt('📥 <b>[E]</b> Đặt vật phẩm xuống mặt bàn', '#38bdf8', true);
+      this.hud.updateInteractionPrompt(
+        isTouch ? '📥 Chạm <b>[Cầm/Thả]</b> để đặt vật phẩm xuống bàn' : '📥 <b>[E]</b> Đặt vật phẩm xuống mặt bàn',
+        '#38bdf8',
+        true
+      );
     } else if (this.heldItem && c.currentItem) {
-      this.hud.updateInteractionPrompt('🍽️ <b>[E]</b> Ghép nguyên liệu vào Đĩa', '#10b981', true);
+      this.hud.updateInteractionPrompt(
+        isTouch ? '🍽️ Chạm <b>[Cầm/Thả]</b> để ghép nguyên liệu vào Đĩa' : '🍽️ <b>[E]</b> Ghép nguyên liệu vào Đĩa',
+        '#10b981',
+        true
+      );
     } else {
       this.hud.updateInteractionPrompt('', '#38bdf8', false);
     }

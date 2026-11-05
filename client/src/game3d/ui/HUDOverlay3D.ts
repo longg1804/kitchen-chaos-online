@@ -48,24 +48,48 @@ export class HUDOverlay3D {
 
   private joystickActive = false;
   private joystickTouchId: number | null = null;
+  private joystickPointerId: number | null = null;
   private joystickCenter = { x: 0, y: 0 };
   private joystickThumbEl!: HTMLElement;
   private joystickBaseEl!: HTMLElement;
+  private joystickDirGlowEl!: HTMLElement;
+  private mobileControlsRoot!: HTMLElement;
+  private desktopHintEl!: HTMLElement;
+  private mobileHintEl!: HTMLElement;
+  private mobileHintTimer: number | null = null;
+  private ordersWrapperEl!: HTMLElement;
+  private ordersToggleBtnEl!: HTMLButtonElement;
+  private ordersCollapsed = false;
+  private isTouchMode = false;
+
+  private boundOnResize: () => void;
+  private boundOnResetInputs: () => void;
+  private boundOnFirstTouch: () => void;
 
   constructor(onExit: () => void, onScreenshot?: () => void) {
     this.onExitCallback = onExit;
     this.onScreenshotCallback = onScreenshot;
+    this.isTouchMode = this.detectTouchOrMobileDevice();
+
+    // Hide global #fs-btn while HUD is active to prevent top-right overlap
+    const globalFsBtn = document.getElementById('fs-btn');
+    if (globalFsBtn) {
+      globalFsBtn.style.display = 'none';
+    }
+
     this.container = document.createElement('div');
     this.container.id = 'hud-overlay-3d';
     this.container.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
       z-index: 50;
       overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
 
@@ -74,10 +98,94 @@ export class HUDOverlay3D {
     this.buildOrdersList();
     this.buildInteractionPrompt();
     this.buildMobileControls();
-    this.buildDesktopHints();
+    this.buildControlHints();
     this.buildGameOverModal();
 
+    this.applyDeviceModeLayout();
+
+    this.boundOnResize = () => {
+      this.isTouchMode = this.detectTouchOrMobileDevice() || this.isTouchMode;
+      this.applyDeviceModeLayout();
+    };
+    this.boundOnResetInputs = () => {
+      if (document.hidden || !document.hasFocus()) {
+        this.resetAllInputs();
+      }
+      this.applyDeviceModeLayout();
+    };
+    this.boundOnFirstTouch = () => {
+      if (!this.isTouchMode) {
+        this.isTouchMode = true;
+        this.applyDeviceModeLayout();
+      }
+    };
+
+    window.addEventListener('resize', this.boundOnResize);
+    window.addEventListener('orientationchange', this.boundOnResize);
+    document.addEventListener('fullscreenchange', this.boundOnResize);
+    window.addEventListener('blur', this.boundOnResetInputs);
+    document.addEventListener('visibilitychange', this.boundOnResetInputs);
+    window.addEventListener('touchstart', this.boundOnFirstTouch, { passive: true });
+
     document.body.appendChild(this.container);
+  }
+
+  public isMobileTouchMode(): boolean {
+    return this.isTouchMode;
+  }
+
+  private detectTouchOrMobileDevice(): boolean {
+    const hasCoarsePointer =
+      typeof window.matchMedia === 'function' &&
+      (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(any-pointer: coarse)').matches);
+    const hasTouchPoints = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+    const hasOntouchstart = 'ontouchstart' in window;
+    const isMobileViewport = window.innerWidth <= 920 || window.innerHeight <= 540;
+    const isMobileUA =
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
+    return Boolean(hasCoarsePointer || hasTouchPoints || hasOntouchstart || isMobileViewport || isMobileUA);
+  }
+
+  public resetAllInputs() {
+    this.joystickActive = false;
+    this.joystickTouchId = null;
+    this.joystickPointerId = null;
+    this.inputs.moveX = 0;
+    this.inputs.moveZ = 0;
+    this.inputs.isActionPressed = false;
+    this.inputs.isPickupJustPressed = false;
+    this.inputs.isActionJustPressed = false;
+    this.inputs.isThrowJustPressed = false;
+    this.inputs.isDashJustPressed = false;
+    if (this.joystickThumbEl) {
+      this.joystickThumbEl.style.transform = 'translate3d(0px, 0px, 0)';
+    }
+    if (this.joystickDirGlowEl) {
+      this.joystickDirGlowEl.style.opacity = '0';
+    }
+    if (this.joystickBaseEl) {
+      this.joystickBaseEl.style.borderColor = 'rgba(255, 255, 255, 0.55)';
+    }
+  }
+
+  private applyDeviceModeLayout() {
+    if (!this.mobileControlsRoot || !this.desktopHintEl || !this.mobileHintEl) return;
+
+    if (this.isTouchMode) {
+      this.mobileControlsRoot.style.display = 'block';
+      this.joystickBaseEl.style.display = 'flex';
+      this.desktopHintEl.style.display = 'none';
+      this.mobileHintEl.style.display = 'flex';
+      this.promptEl.style.bottom = 'calc(clamp(12px, 2.4vh, 22px) + env(safe-area-inset-bottom, 0px))';
+      this.promptEl.style.maxWidth = 'calc(100vw - 320px)';
+    } else {
+      this.mobileControlsRoot.style.display = 'none';
+      this.desktopHintEl.style.display = 'block';
+      this.mobileHintEl.style.display = 'none';
+      this.promptEl.style.bottom = '42px';
+      this.promptEl.style.maxWidth = '86vw';
+    }
   }
 
   private injectHUDKeyframes() {
@@ -86,13 +194,13 @@ export class HUDOverlay3D {
     style.id = 'hud-3d-keyframes';
     style.textContent = `
       @keyframes hudOrderEnter {
-        0% { opacity: 0; transform: translateY(-32px) scale(0.86); }
-        70% { opacity: 1; transform: translateY(4px) scale(1.03); }
+        0% { opacity: 0; transform: translateY(-24px) scale(0.88); }
+        70% { opacity: 1; transform: translateY(3px) scale(1.02); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes hudTimerPulse {
-        0%, 100% { transform: scale(1); box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35); }
-        50% { transform: scale(1.06); box-shadow: 0 0 22px rgba(239, 68, 68, 0.75); }
+        0%, 100% { transform: scale(1); box-shadow: 0 3px 12px rgba(239, 68, 68, 0.35); }
+        50% { transform: scale(1.06); box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
       }
       @keyframes hudUrgentCard {
         0%, 100% { transform: translateX(0); }
@@ -100,9 +208,16 @@ export class HUDOverlay3D {
         75% { transform: translateX(2px); }
       }
       @keyframes hudGoldenTicketFly {
-        0% { transform: scale(1.08) rotate(0deg); opacity: 1; }
-        35% { transform: scale(1.16) rotate(-14deg) translate(-8px, -6px); opacity: 1; }
-        100% { transform: scale(0.75) rotate(-24deg) translate(-90px, -65px); opacity: 0; }
+        0% { transform: scale(1.06) rotate(0deg); opacity: 1; }
+        35% { transform: scale(1.14) rotate(-12deg) translate(-6px, -5px); opacity: 1; }
+        100% { transform: scale(0.75) rotate(-22deg) translate(-80px, -55px); opacity: 0; }
+      }
+      #hud-orders-scroll::-webkit-scrollbar {
+        height: 4px;
+      }
+      #hud-orders-scroll::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.45);
+        border-radius: 4px;
       }
     `;
     document.head.appendChild(style);
@@ -112,46 +227,47 @@ export class HUDOverlay3D {
     const topBar = document.createElement('div');
     topBar.style.cssText = `
       position: absolute;
-      top: 10px;
-      right: 14px;
+      top: calc(clamp(6px, 1.4vh, 10px) + env(safe-area-inset-top, 0px));
+      right: calc(clamp(8px, 1.8vw, 14px) + env(safe-area-inset-right, 0px));
       display: flex;
-      gap: 10px;
+      gap: clamp(5px, 1.1vw, 9px);
       align-items: center;
       pointer-events: auto;
+      z-index: 65;
     `;
 
-    // Center: Score & Combo Badge
+    // Score & Combo Badge
     this.scoreEl = document.createElement('div');
     this.scoreEl.style.cssText = `
       background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92));
-      border: 2.5px solid #fbbf24;
-      border-radius: 16px;
-      padding: 6px 16px;
+      border: 2px solid #fbbf24;
+      border-radius: 13px;
+      padding: clamp(4px, 0.9vh, 6px) clamp(9px, 1.6vw, 14px);
       color: #fbbf24;
       font-weight: 900;
-      font-size: 18px;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 14px rgba(251, 191, 36, 0.28);
+      font-size: clamp(12px, 2.3vmin, 16px);
+      letter-spacing: 0.3px;
+      box-shadow: 0 3px 12px rgba(251, 191, 36, 0.25);
       text-align: center;
       backdrop-filter: blur(8px);
       white-space: nowrap;
       transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s ease;
     `;
-    this.scoreEl.innerHTML = '🪙 ĐIỂM: 0 <span style="color:#fef08a;font-size:14px;">(x1)</span>';
+    this.scoreEl.innerHTML = '🪙 0 <span style="color:#fef08a;font-size:0.82em;">(x1)</span>';
     topBar.appendChild(this.scoreEl);
 
     // Match Timer Badge
     this.timerEl = document.createElement('div');
     this.timerEl.style.cssText = `
       background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92));
-      border: 2.5px solid #38bdf8;
-      border-radius: 16px;
-      padding: 6px 15px;
+      border: 2px solid #38bdf8;
+      border-radius: 13px;
+      padding: clamp(4px, 0.9vh, 6px) clamp(9px, 1.6vw, 13px);
       color: #38bdf8;
       font-weight: 900;
-      font-size: 18px;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.28);
+      font-size: clamp(12px, 2.3vmin, 16px);
+      letter-spacing: 0.3px;
+      box-shadow: 0 3px 12px rgba(56, 189, 248, 0.25);
       backdrop-filter: blur(8px);
       white-space: nowrap;
       transition: border-color 0.2s, color 0.2s;
@@ -162,16 +278,17 @@ export class HUDOverlay3D {
     // Screenshot Button
     if (this.onScreenshotCallback) {
       const snapBtn = document.createElement('button');
-      snapBtn.innerHTML = '📸 Chụp ảnh';
-      snapBtn.title = 'Phím tắt [P] để chụp ảnh màn hình';
+      snapBtn.type = 'button';
+      snapBtn.innerHTML = '📸';
+      snapBtn.title = 'Chụp ảnh màn hình [P]';
       snapBtn.style.cssText = `
-        background: rgba(30, 41, 59, 0.88);
+        background: rgba(30, 41, 59, 0.9);
         border: 1.5px solid #38bdf8;
         color: #38bdf8;
-        padding: 7px 12px;
-        border-radius: 12px;
-        font-size: 13px;
-        font-weight: bold;
+        padding: clamp(4px, 0.9vh, 6px) clamp(8px, 1.4vw, 11px);
+        border-radius: 11px;
+        font-size: clamp(12px, 2.1vmin, 14px);
+        font-weight: 800;
         cursor: pointer;
         backdrop-filter: blur(6px);
         transition: transform 0.1s;
@@ -180,19 +297,51 @@ export class HUDOverlay3D {
       topBar.appendChild(snapBtn);
     }
 
-    // Exit Button
-    const exitBtn = document.createElement('button');
-    exitBtn.innerHTML = '🚪 Thoát';
-    exitBtn.style.cssText = `
-      background: rgba(30, 41, 59, 0.88);
-      border: 1.5px solid #475569;
+    // Fullscreen Toggle Button (integrated cleanly into top bar so #fs-btn never overlaps!)
+    const fsBtn = document.createElement('button');
+    fsBtn.type = 'button';
+    fsBtn.innerHTML = '⛶';
+    fsBtn.title = 'Toàn màn hình';
+    fsBtn.style.cssText = `
+      background: rgba(30, 41, 59, 0.9);
+      border: 1.5px solid #64748b;
       color: #f8fafc;
-      padding: 7px 12px;
-      border-radius: 12px;
-      font-size: 13px;
-      font-weight: bold;
+      padding: clamp(4px, 0.9vh, 6px) clamp(8px, 1.4vw, 11px);
+      border-radius: 11px;
+      font-size: clamp(12px, 2.1vmin, 14px);
+      font-weight: 800;
       cursor: pointer;
       backdrop-filter: blur(6px);
+    `;
+    fsBtn.onclick = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+        try {
+          if (screen.orientation && (screen.orientation as any).lock) {
+            (screen.orientation as any).lock('landscape').catch(() => {});
+          }
+        } catch (_) {}
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+    topBar.appendChild(fsBtn);
+
+    // Exit Button
+    const exitBtn = document.createElement('button');
+    exitBtn.type = 'button';
+    exitBtn.innerHTML = '🚪 Thoát';
+    exitBtn.style.cssText = `
+      background: rgba(30, 41, 59, 0.9);
+      border: 1.5px solid #475569;
+      color: #f8fafc;
+      padding: clamp(4px, 0.9vh, 6px) clamp(8px, 1.5vw, 12px);
+      border-radius: 11px;
+      font-size: clamp(11px, 2vmin, 13px);
+      font-weight: 800;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      white-space: nowrap;
       transition: background 0.15s;
     `;
     exitBtn.onclick = () => this.onExitCallback();
@@ -202,24 +351,67 @@ export class HUDOverlay3D {
   }
 
   /**
-   * Overcooked 2 Horizontal Order Ticker Bar
-   * Positioned along top-left without occluding kitchen gameplay!
+   * Compact Overcooked 2 Horizontal Order Ticker Bar (PHẦN 3.1)
+   * Includes a collapse/expand button and horizontal scroll so Order Cards never block kitchen gameplay!
    */
   private buildOrdersList() {
-    this.ordersContainer = document.createElement('div');
-    this.ordersContainer.style.cssText = `
+    this.ordersWrapperEl = document.createElement('div');
+    this.ordersWrapperEl.style.cssText = `
       position: absolute;
-      top: 10px;
-      left: 14px;
+      top: calc(clamp(6px, 1.4vh, 10px) + env(safe-area-inset-top, 0px));
+      left: calc(clamp(8px, 1.8vw, 14px) + env(safe-area-inset-left, 0px));
       display: flex;
       flex-direction: row;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 6px;
+      max-width: calc(100vw - clamp(255px, 44vw, 390px) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+      z-index: 60;
       pointer-events: none;
-      max-width: calc(100vw - 410px);
-      overflow-x: auto;
-      padding-bottom: 4px;
     `;
-    this.container.appendChild(this.ordersContainer);
+
+    // Collapse / Expand Orders Toggle Pill (for compact mobile screens when multiple orders arrive)
+    this.ordersToggleBtnEl = document.createElement('button');
+    this.ordersToggleBtnEl.type = 'button';
+    this.ordersToggleBtnEl.innerHTML = '📋 0 ▾';
+    this.ordersToggleBtnEl.title = 'Thu gọn / Mở rộng danh sách đơn hàng';
+    this.ordersToggleBtnEl.style.cssText = `
+      pointer-events: auto;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1.5px solid #38bdf8;
+      border-radius: 10px;
+      padding: 4px 8px;
+      color: #e0f2fe;
+      font-size: clamp(10px, 1.9vmin, 12px);
+      font-weight: 900;
+      cursor: pointer;
+      white-space: nowrap;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+      flex-shrink: 0;
+    `;
+    this.ordersToggleBtnEl.onclick = () => {
+      this.ordersCollapsed = !this.ordersCollapsed;
+      this.ordersContainer.style.display = this.ordersCollapsed ? 'none' : 'flex';
+      const count = this.orderCardEls.size;
+      this.ordersToggleBtnEl.innerHTML = `📋 ${count} ${this.ordersCollapsed ? '▸' : '▾'}`;
+    };
+    this.ordersWrapperEl.appendChild(this.ordersToggleBtnEl);
+
+    this.ordersContainer = document.createElement('div');
+    this.ordersContainer.id = 'hud-orders-scroll';
+    this.ordersContainer.style.cssText = `
+      display: flex;
+      flex-direction: row;
+      gap: clamp(5px, 1.1vw, 8px);
+      pointer-events: auto;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+      touch-action: pan-x;
+      -webkit-overflow-scrolling: touch;
+    `;
+    this.ordersWrapperEl.appendChild(this.ordersContainer);
+    this.container.appendChild(this.ordersWrapperEl);
   }
 
   /**
@@ -236,15 +428,17 @@ export class HUDOverlay3D {
       background: rgba(15, 23, 42, 0.92);
       border: 2px solid #38bdf8;
       border-radius: 999px;
-      padding: 6px 18px;
+      padding: 5px 14px;
       color: #f8fafc;
-      font-size: 13px;
+      font-size: clamp(11px, 2vmin, 13px);
       font-weight: 800;
       letter-spacing: 0.2px;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45);
       pointer-events: none;
       backdrop-filter: blur(8px);
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       opacity: 0;
       transition: opacity 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
     `;
@@ -269,32 +463,33 @@ export class HUDOverlay3D {
   }
 
   /**
-   * Overcooked! All You Can Eat 2-Tier Hanging Order Tickets (Matches Reference Images 2 & 3!)
-   * - Tier 1 (Top Square Card): Beveled White/Grey Paper Frame + Recessed Top Timer Bar + Top-Down Circular Dish Illustration
-   * - Tier 2 (Bottom Hanging Strips): Vertical Light-Blue Ingredient Tags (#a8d0e6) with White Circle Ingredient Icon
-   *   and Solid-Black Prep Tool Silhouette Icon (Frying Pan 🍳 or Chopping Knife 🔪) at the bottom!
-   * - Golden Ticket Fly-Off Animation when an order is completed!
+   * Compact Overcooked 2-Tier Hanging Order Tickets (PHẦN 3.1)
+   * - Includes Recipe Name, Points Badge (+120đ), Progress Bar, Circular Dish Illustration,
+   *   and Hanging Light-Blue Ingredient + Prep Tool Strips in a compact footprint that never blocks the kitchen!
    */
   public updateOrders(orders: OrderRecipe[]) {
     const activeIds = new Set(orders.map((o) => o.id));
+
+    if (this.ordersToggleBtnEl) {
+      this.ordersToggleBtnEl.innerHTML = `📋 ${orders.length} ${this.ordersCollapsed ? '▸' : '▾'}`;
+    }
 
     // Handle removed orders: if completed while time remained, play Golden Ticket Fly-Off animation!
     for (const [id, entry] of this.orderCardEls.entries()) {
       if (!activeIds.has(id) && !entry.removing) {
         if (entry.lastRatio > 0.04) {
           entry.removing = true;
-          // Transform top square into Overcooked Golden Crown Ticket (Matches Reference Image 2!)
           entry.topSquare.style.background = 'linear-gradient(135deg, #fef08a 0%, #eab308 55%, #ca8a04 100%)';
           entry.topSquare.style.borderColor = '#fde047';
-          entry.topSquare.style.boxShadow = '0 0 22px rgba(250, 204, 21, 0.9), 0 6px 16px rgba(0,0,0,0.45)';
-          entry.fill.style.background = '#ec4899'; // Vibrant magenta bar on Golden Ticket
-          entry.wrapper.style.animation = 'hudGoldenTicketFly 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards';
+          entry.topSquare.style.boxShadow = '0 0 18px rgba(250, 204, 21, 0.9), 0 4px 12px rgba(0,0,0,0.45)';
+          entry.fill.style.background = '#ec4899';
+          entry.wrapper.style.animation = 'hudGoldenTicketFly 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards';
           setTimeout(() => {
             if (entry.wrapper.parentNode) {
               entry.wrapper.parentNode.removeChild(entry.wrapper);
             }
             this.orderCardEls.delete(id);
-          }, 550);
+          }, 500);
         } else {
           if (entry.wrapper.parentNode) {
             entry.wrapper.parentNode.removeChild(entry.wrapper);
@@ -311,7 +506,8 @@ export class HUDOverlay3D {
 
       if (!entry) {
         const stripCount = order.requiredIngredients.length;
-        const cardWidth = Math.max(88, stripCount * 32 + (stripCount - 1) * 3);
+        const cardWidth = Math.max(68, stripCount * 22 + (stripCount - 1) * 2 + 4);
+        const shortName = order.name.replace('Burger ', '');
 
         // Outer Wrapper holding Top Dish Square + Bottom Hanging Light-Blue Ingredient Strips
         const wrapper = document.createElement('div');
@@ -320,40 +516,42 @@ export class HUDOverlay3D {
           flex-direction: column;
           align-items: stretch;
           width: ${cardWidth}px;
-          filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.42));
-          animation: hudOrderEnter 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          flex-shrink: 0;
+          filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.4));
+          animation: hudOrderEnter 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
           user-select: none;
         `;
 
-        // 1. TOP SQUARE CARD (White/Light-Grey Beveled Ticket Frame with Top Timer Bar & Center Dish Plate)
+        // 1. TOP SQUARE CARD (Compact Beveled Ticket Frame with Progress Bar, Dish Icon, Name & Points)
         const topSquare = document.createElement('div');
         topSquare.style.cssText = `
           position: relative;
           background: linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 86%, #f8fafc 100%);
-          border: 3px solid #f1f5f9;
-          border-bottom: 4px solid #f8fafc;
-          border-radius: 4px 4px 2px 2px;
-          height: 82px;
+          border: 2px solid #f1f5f9;
+          border-bottom: 3px solid #f8fafc;
+          border-radius: 5px 5px 2px 2px;
+          height: clamp(56px, 12.5vmin, 66px);
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: space-between;
-          padding: 0 5px 4px 5px;
+          padding: 0 3px 2px 3px;
           box-sizing: border-box;
           overflow: hidden;
         `;
 
-        // Top Recessed Timer Slot (Matches Reference Images 2 & 3!)
+        // Top Recessed Timer Slot
         const timerSlot = document.createElement('div');
         timerSlot.style.cssText = `
-          width: calc(100% - 4px);
-          height: 11px;
-          background: #525b66;
-          border-left: 2px solid #f8fafc;
-          border-right: 2px solid #f8fafc;
-          border-bottom: 2px solid #94a3b8;
+          width: calc(100% - 2px);
+          height: 7px;
+          background: #475569;
+          border-left: 1.5px solid #f8fafc;
+          border-right: 1.5px solid #f8fafc;
+          border-bottom: 1.5px solid #94a3b8;
           position: relative;
           overflow: hidden;
+          flex-shrink: 0;
         `;
 
         const progressFill = document.createElement('div');
@@ -361,7 +559,7 @@ export class HUDOverlay3D {
           width: ${ratio * 100}%;
           height: 100%;
           background: ${barColor};
-          border-right: 2.5px solid #ffffff;
+          border-right: 2px solid #ffffff;
           box-sizing: border-box;
           transition: width 0.15s linear, background-color 0.25s ease;
         `;
@@ -371,27 +569,44 @@ export class HUDOverlay3D {
         // Center Top-Down Circular Dish Illustration
         const dishBox = document.createElement('div');
         dishBox.style.cssText = `
-          width: 60px;
-          height: 60px;
+          width: clamp(36px, 8vmin, 42px);
+          height: clamp(36px, 8vmin, 42px);
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-top: 1px;
+          margin-top: -1px;
         `;
         dishBox.innerHTML = this.getDishPlateSVG(order);
         topSquare.appendChild(dishBox);
 
+        // Compact Recipe Name + Points Footer inside Top Card
+        const metaRow = document.createElement('div');
+        metaRow.style.cssText = `
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 9px;
+          font-weight: 900;
+          line-height: 1;
+          color: #0f172a;
+          padding: 0 1px;
+          box-sizing: border-box;
+        `;
+        metaRow.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%;">${shortName}</span><span style="color:#b45309;">+${order.rewardPoints}</span>`;
+        topSquare.appendChild(metaRow);
+
         wrapper.appendChild(topSquare);
 
-        // 2. BOTTOM HANGING LIGHT-BLUE INGREDIENT STRIPS (Matches Reference Images 2 & 3!)
+        // 2. BOTTOM HANGING LIGHT-BLUE INGREDIENT STRIPS (Compact height so kitchen stays clear!)
         const stripsRow = document.createElement('div');
         stripsRow.style.cssText = `
           display: flex;
           flex-direction: row;
           justify-content: center;
           align-items: flex-start;
-          gap: 3px;
-          padding: 0 2px;
+          gap: 2px;
+          padding: 0 1px;
         `;
 
         order.requiredIngredients.forEach((ing) => {
@@ -400,42 +615,42 @@ export class HUDOverlay3D {
           const strip = document.createElement('div');
           strip.style.cssText = `
             flex: 1;
-            min-width: 28px;
-            height: ${hasPrep ? '58px' : '36px'};
+            min-width: 20px;
+            height: ${hasPrep ? '38px' : '23px'};
             background: linear-gradient(180deg, #9ecae3 0%, #b5d8ec 100%);
-            border: 1.5px solid #7eaac4;
-            border-top: 2px solid #6b95b0;
-            border-radius: 0 0 5px 5px;
+            border: 1px solid #7eaac4;
+            border-top: 1.5px solid #6b95b0;
+            border-radius: 0 0 4px 4px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
-            padding: 4px 2px 4px 2px;
+            padding: 2px 1px;
             box-sizing: border-box;
-            box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.14);
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
           `;
 
           // White Circular Ingredient Icon at Top of Strip
           const ingCircle = document.createElement('div');
           ingCircle.style.cssText = `
-            width: 25px;
-            height: 25px;
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
             background: #ffffff;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
           `;
           ingCircle.innerHTML = this.getRawIngredientSVG(ing);
           strip.appendChild(ingCircle);
 
-          // Black Silhouette Tool Icon at Bottom of Strip (if cooking/chopping is required!)
+          // Black Silhouette Tool Icon at Bottom of Strip
           if (hasPrep) {
             const toolBox = document.createElement('div');
             toolBox.style.cssText = `
-              width: 22px;
-              height: 20px;
+              width: 16px;
+              height: 14px;
               display: flex;
               align-items: center;
               justify-content: center;
@@ -471,7 +686,7 @@ export class HUDOverlay3D {
   }
 
   /**
-   * High-Contrast Top-Down Circular Dish Illustration SVG for the Top Ticket Square (Matches Images 2 & 3)
+   * High-Contrast Top-Down Circular Dish Illustration SVG for the Top Ticket Square
    */
   private getDishPlateSVG(order: OrderRecipe): string {
     const req = order.requiredIngredients;
@@ -482,9 +697,8 @@ export class HUDOverlay3D {
     const hasMeat = req.includes(IngredientType.COOKED_PATTY);
 
     if (hasBread) {
-      // Top-down Burger on a White Ceramic Plate with lettuce frills, tomato/cheese peeking out & sesame bun
       return `
-        <svg width="58" height="58" viewBox="0 0 64 64">
+        <svg width="100%" height="100%" viewBox="0 0 64 64">
           <circle cx="32" cy="33" r="29" fill="rgba(0,0,0,0.22)"/>
           <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
           <circle cx="32" cy="31" r="21" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
@@ -521,9 +735,8 @@ export class HUDOverlay3D {
     }
 
     if (hasMeat && !hasBread) {
-      // Seared Steak Plate
       return `
-        <svg width="58" height="58" viewBox="0 0 64 64">
+        <svg width="100%" height="100%" viewBox="0 0 64 64">
           <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
           <ellipse cx="32" cy="32" rx="19" ry="14" transform="rotate(-12 32 32)" fill="#7c2d12" stroke="#431407" stroke-width="2.2"/>
           <line x1="22" y1="26" x2="36" y2="38" stroke="#290d02" stroke-width="2.2" stroke-linecap="round"/>
@@ -532,9 +745,8 @@ export class HUDOverlay3D {
       `;
     }
 
-    // Fresh Garden Salad on Plate
     return `
-      <svg width="58" height="58" viewBox="0 0 64 64">
+      <svg width="100%" height="100%" viewBox="0 0 64 64">
         <circle cx="32" cy="31" r="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2.5"/>
         <circle cx="32" cy="31" r="19" fill="#22c55e" stroke="#14532d" stroke-width="2"/>
         <circle cx="26" cy="27" r="7" fill="#4ade80"/>
@@ -550,13 +762,13 @@ export class HUDOverlay3D {
   }
 
   /**
-   * Crisp Cartoon Ingredient SVG inside the White Circle of each Light-Blue Hanging Strip (Matches Images 2 & 3)
+   * Crisp Cartoon Ingredient SVG inside the White Circle of each Light-Blue Hanging Strip
    */
   private getRawIngredientSVG(type: IngredientType): string {
     switch (type) {
       case IngredientType.BREAD:
         return `
-          <svg width="20" height="20" viewBox="0 0 32 32">
+          <svg width="15" height="15" viewBox="0 0 32 32">
             <ellipse cx="16" cy="17" rx="11" ry="9" fill="#f59e0b" stroke="#78350f" stroke-width="2.2"/>
             <ellipse cx="12" cy="14" rx="1.6" ry="0.9" fill="#fef9c3"/>
             <ellipse cx="17" cy="13" rx="1.6" ry="0.9" fill="#fef9c3"/>
@@ -564,9 +776,8 @@ export class HUDOverlay3D {
           </svg>
         `;
       case IngredientType.COOKED_PATTY:
-        // Raw Marbled Red Ribeye Steak Icon (like Image 3 col 3!)
         return `
-          <svg width="20" height="20" viewBox="0 0 32 32">
+          <svg width="15" height="15" viewBox="0 0 32 32">
             <ellipse cx="16" cy="16" rx="12" ry="8.5" transform="rotate(-22 16 16)" fill="#fda4af" stroke="#881337" stroke-width="2.2"/>
             <ellipse cx="16.5" cy="16" rx="9.5" ry="6.5" transform="rotate(-22 16.5 16)" fill="#e11d48"/>
             <circle cx="12" cy="16" r="2.6" fill="#ffffff" stroke="#881337" stroke-width="1.4"/>
@@ -575,22 +786,21 @@ export class HUDOverlay3D {
         `;
       case IngredientType.CHOPPED_LETTUCE:
         return `
-          <svg width="20" height="20" viewBox="0 0 32 32">
+          <svg width="15" height="15" viewBox="0 0 32 32">
             <circle cx="16" cy="16" r="10.5" fill="#22c55e" stroke="#14532d" stroke-width="2.2"/>
             <path d="M10,16 Q16,10 22,16 Q16,22 10,16 Z" fill="#86efac"/>
           </svg>
         `;
       case IngredientType.SLICED_TOMATO:
-        // Plump Red Tomato with Green Star Calyx (like Image 2 col 2!)
         return `
-          <svg width="20" height="20" viewBox="0 0 32 32">
+          <svg width="15" height="15" viewBox="0 0 32 32">
             <circle cx="16" cy="17" r="10" fill="#dc2626" stroke="#7f1d1d" stroke-width="2"/>
             <polygon points="16,5 18,10 23,9 19,13 21,17 16,14 11,17 13,13 9,9 14,10" fill="#16a34a" stroke="#14532d" stroke-width="1.2"/>
           </svg>
         `;
       case IngredientType.SLICED_CHEESE:
         return `
-          <svg width="20" height="20" viewBox="0 0 32 32">
+          <svg width="15" height="15" viewBox="0 0 32 32">
             <polygon points="5,22 27,23 19,7" fill="#facc15" stroke="#854d0e" stroke-width="2.2" stroke-linejoin="round"/>
             <circle cx="15" cy="18" r="2.2" fill="#ca8a04"/>
             <circle cx="20" cy="19" r="1.6" fill="#ca8a04"/>
@@ -602,17 +812,13 @@ export class HUDOverlay3D {
   }
 
   /**
-   * Solid-Black Silhouette Prep Tool Icon at the Bottom of the Light-Blue Hanging Strip (Matches Image 2!)
-   * - Cooked Patty -> Black Frying Pan with Handle + 3 Wavy Steam Lines
-   * - Chopped Veggies/Cheese -> Black Cleaver / Chopping Icon
-   * - Bread -> Empty string (shorter strip, no prep needed!)
+   * Solid-Black Silhouette Prep Tool Icon at the Bottom of the Light-Blue Hanging Strip
    */
   private getPrepToolBlackSVG(type: IngredientType): string {
     if (type === IngredientType.COOKED_PATTY) {
-      // Exact Black Frying Pan + 3 Steam Waves Silhouette from Reference Image 2!
       return `
-        <svg width="22" height="19" viewBox="0 0 28 24">
-          <path d="M7,9 Q9,6 7,3 M12,9 Q14,6 12,3 M17,9 Q19,6 17,3" fill="none" stroke="#090d16" stroke-width="2" stroke-linecap="round"/>
+        <svg width="16" height="14" viewBox="0 0 28 24">
+          <path d="M7,9 Q9,6 7,3 M12,9 Q14,6 12,3 M17,9 Q19,6 17,3" fill="none" stroke="#090d16" stroke-width="2.2" stroke-linecap="round"/>
           <path d="M3,13 L20,13 L18,19 Q11.5,20.5 5,19 Z" fill="#090d16"/>
           <rect x="19" y="13.5" width="7.5" height="2.4" rx="1" fill="#090d16"/>
         </svg>
@@ -623,9 +829,8 @@ export class HUDOverlay3D {
       type === IngredientType.SLICED_TOMATO ||
       type === IngredientType.SLICED_CHEESE
     ) {
-      // Solid Black Chopping Knife & Board Silhouette
       return `
-        <svg width="22" height="19" viewBox="0 0 28 24">
+        <svg width="16" height="14" viewBox="0 0 28 24">
           <path d="M4,15 L19,6 L22,11 L7,18 Z" fill="#090d16"/>
           <rect x="20" y="5" width="5" height="2.6" rx="1" transform="rotate(-28 20 5)" fill="#090d16"/>
           <rect x="3" y="20" width="22" height="2.6" rx="1" fill="#090d16"/>
@@ -636,15 +841,15 @@ export class HUDOverlay3D {
   }
 
   public updateScoreAndTimer(score: number, combo: number, secondsRemaining: number) {
-    this.scoreEl.innerHTML = `🪙 ĐIỂM: ${score} <span style="color:#fef08a;font-size:14px;">(x${combo})</span>`;
+    this.scoreEl.innerHTML = `🪙 ${score} <span style="color:#fef08a;font-size:0.84em;">(x${combo})</span>`;
     if (score !== this.lastScore) {
       if (score > this.lastScore) {
-        this.scoreEl.style.transform = 'scale(1.16)';
-        this.scoreEl.style.boxShadow = '0 0 24px rgba(251, 191, 36, 0.85)';
+        this.scoreEl.style.transform = 'scale(1.15)';
+        this.scoreEl.style.boxShadow = '0 0 22px rgba(251, 191, 36, 0.85)';
         setTimeout(() => {
           if (this.scoreEl) {
             this.scoreEl.style.transform = 'scale(1)';
-            this.scoreEl.style.boxShadow = '0 4px 14px rgba(251, 191, 36, 0.28)';
+            this.scoreEl.style.boxShadow = '0 3px 12px rgba(251, 191, 36, 0.25)';
           }
         }, 220);
       }
@@ -665,148 +870,338 @@ export class HUDOverlay3D {
     }
   }
 
+  /**
+   * PHẦN 1 & PHẦN 2:
+   * - Left Side: Always-Visible Cartoon Virtual Joystick (120–145px base, 48–60px knob) with 8-way analog drag
+   *   and instant center snap-back on release/cancel/blur.
+   * - Right Side: Ergonomic 2x2 Two-Thumb Action Button Cluster:
+   *     [ 🎯 Ném (Secondary) ]   [ ✋ Cầm/Thả (Primary) ]
+   *     [ ⚡ Lướt (Secondary) ]  [ 🔪 Cắt/Nấu (Primary) ]
+   */
   private buildMobileControls() {
-    // 1. TOUCH JOYSTICK ZONE (Left screen)
+    this.mobileControlsRoot = document.createElement('div');
+    this.mobileControlsRoot.id = 'hud-mobile-controls';
+    this.mobileControlsRoot.style.cssText = `
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 55;
+    `;
+
+    // =========================================================================
+    // 1. LEFT-HAND VIRTUAL JOYSTICK ZONE & ALWAYS-VISIBLE CARTOON JOYSTICK
+    // =========================================================================
     const joyZone = document.createElement('div');
+    joyZone.id = 'hud-joystick-zone';
     joyZone.style.cssText = `
       position: absolute;
       bottom: 0;
       left: 0;
-      width: 40vw;
-      height: 50vh;
+      width: 46vw;
+      height: 62vh;
+      max-width: 340px;
+      max-height: 340px;
       pointer-events: auto;
       touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     `;
 
+    // Outer Circular Joystick Base (120px - 142px standard, always visible on touch/mobile!)
     this.joystickBaseEl = document.createElement('div');
+    this.joystickBaseEl.id = 'hud-joystick-base';
     this.joystickBaseEl.style.cssText = `
       position: absolute;
-      width: 100px;
-      height: 100px;
+      left: calc(clamp(16px, 3vw, 28px) + env(safe-area-inset-left, 0px));
+      bottom: calc(clamp(16px, 3vh, 28px) + env(safe-area-inset-bottom, 0px));
+      width: clamp(120px, 25vmin, 142px);
+      height: clamp(120px, 25vmin, 142px);
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.15);
-      border: 3px solid rgba(255, 255, 255, 0.35);
-      transform: translate(-50%, -50%);
-      display: none;
+      background: radial-gradient(circle, rgba(15, 23, 42, 0.38) 0%, rgba(15, 23, 42, 0.68) 72%, rgba(30, 41, 59, 0.85) 100%);
+      border: 3.5px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), inset 0 0 14px rgba(56, 189, 248, 0.22);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       pointer-events: none;
+      box-sizing: border-box;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     `;
 
-    this.joystickThumbEl = document.createElement('div');
-    this.joystickThumbEl.style.cssText = `
+    // Inner Guide Ring & 8-Direction Chevrons SVG
+    const guideSvg = document.createElement('div');
+    guideSvg.style.cssText = `
       position: absolute;
-      width: 46px;
-      height: 46px;
-      border-radius: 50%;
-      background: #38bdf8;
-      border: 2px solid #ffffff;
-      transform: translate(-50%, -50%);
+      inset: 0;
       pointer-events: none;
-      box-shadow: 0 0 12px rgba(56, 189, 248, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+    guideSvg.innerHTML = `
+      <svg width="100%" height="100%" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="38" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <!-- Cardinal Directional Triangles -->
+        <polygon points="60,8 54,17 66,17" fill="rgba(255,255,255,0.52)"/>
+        <polygon points="60,112 54,103 66,103" fill="rgba(255,255,255,0.52)"/>
+        <polygon points="8,60 17,54 17,66" fill="rgba(255,255,255,0.52)"/>
+        <polygon points="112,60 103,54 103,66" fill="rgba(255,255,255,0.52)"/>
+        <!-- Diagonal Ticks -->
+        <circle cx="24" cy="24" r="2.2" fill="rgba(255,255,255,0.28)"/>
+        <circle cx="96" cy="24" r="2.2" fill="rgba(255,255,255,0.28)"/>
+        <circle cx="24" cy="96" r="2.2" fill="rgba(255,255,255,0.28)"/>
+        <circle cx="96" cy="96" r="2.2" fill="rgba(255,255,255,0.28)"/>
+      </svg>
+    `;
+    this.joystickBaseEl.appendChild(guideSvg);
+
+    // Directional Active Highlight Glow Layer
+    this.joystickDirGlowEl = document.createElement('div');
+    this.joystickDirGlowEl.style.cssText = `
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    `;
+    this.joystickBaseEl.appendChild(this.joystickDirGlowEl);
+
+    // Inner Thumb Knob (48px - 58px standard, centered inside base, moves via GPU translate3d)
+    this.joystickThumbEl = document.createElement('div');
+    this.joystickThumbEl.id = 'hud-joystick-thumb';
+    this.joystickThumbEl.style.cssText = `
+      position: relative;
+      width: clamp(48px, 10.8vmin, 58px);
+      height: clamp(48px, 10.8vmin, 58px);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #7dd3fc 0%, #38bdf8 48%, #0284c7 100%);
+      border: 3px solid #ffffff;
+      box-shadow: 0 5px 14px rgba(0, 0, 0, 0.5), 0 0 14px rgba(56, 189, 248, 0.75), inset 0 2px 4px rgba(255, 255, 255, 0.65);
+      transform: translate3d(0px, 0px, 0);
+      pointer-events: none;
+      box-sizing: border-box;
+      will-change: transform;
     `;
     this.joystickBaseEl.appendChild(this.joystickThumbEl);
     joyZone.appendChild(this.joystickBaseEl);
 
-    // Joystick Touch Listeners
-    joyZone.addEventListener('touchstart', (e: TouchEvent) => {
-      if (this.joystickTouchId === null && e.changedTouches.length > 0) {
-        const t = e.changedTouches[0];
-        this.joystickTouchId = t.identifier;
-        this.joystickActive = true;
-        this.joystickCenter = { x: t.clientX, y: t.clientY };
-        this.joystickBaseEl.style.left = `${t.clientX}px`;
-        this.joystickBaseEl.style.top = `${t.clientY}px`;
-        this.joystickThumbEl.style.left = '50px';
-        this.joystickThumbEl.style.top = '50px';
-        this.joystickBaseEl.style.display = 'block';
-      }
-    }, { passive: false });
+    // Helper to update joystick vector from clientX / clientY relative to joystick base center
+    const updateJoystickFromPoint = (clientX: number, clientY: number) => {
+      const rect = this.joystickBaseEl.getBoundingClientRect();
+      const centerX = rect.left + rect.width * 0.5;
+      const centerY = rect.top + rect.height * 0.5;
+      const maxR = Math.max(34, (rect.width - this.joystickThumbEl.offsetWidth) * 0.5 + 4);
 
-    joyZone.addEventListener('touchmove', (e: TouchEvent) => {
-      if (!this.joystickActive) return;
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const t = e.changedTouches[i];
-        if (t.identifier === this.joystickTouchId) {
-          const dx = t.clientX - this.joystickCenter.x;
-          const dy = t.clientY - this.joystickCenter.y;
-          const dist = Math.hypot(dx, dy);
-          const maxR = 45;
-          let clampedX = dx;
-          let clampedY = dy;
-          if (dist > maxR) {
-            clampedX = (dx / dist) * maxR;
-            clampedY = (dy / dist) * maxR;
-          }
-          this.joystickThumbEl.style.left = `${50 + clampedX}px`;
-          this.joystickThumbEl.style.top = `${50 + clampedY}px`;
-          this.inputs.moveX = clampedX / maxR;
-          this.inputs.moveZ = clampedY / maxR;
+      const dx = clientX - centerX;
+      const dy = clientY - centerY;
+      const dist = Math.hypot(dx, dy);
+
+      let clampedX = dx;
+      let clampedY = dy;
+      if (dist > maxR) {
+        clampedX = (dx / dist) * maxR;
+        clampedY = (dy / dist) * maxR;
+      }
+
+      this.joystickThumbEl.style.transform = `translate3d(${clampedX.toFixed(1)}px, ${clampedY.toFixed(1)}px, 0)`;
+
+      // Deadzone of 8% for crisp stop, analog intensity from 8% -> 100%
+      const normDist = Math.min(1, dist / maxR);
+      if (normDist < 0.08) {
+        this.inputs.moveX = 0;
+        this.inputs.moveZ = 0;
+        this.joystickDirGlowEl.style.opacity = '0';
+      } else {
+        this.inputs.moveX = clampedX / maxR;
+        this.inputs.moveZ = clampedY / maxR;
+        const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+        this.joystickDirGlowEl.style.background = `conic-gradient(from ${angleDeg - 40}deg, rgba(56, 189, 248, 0.85) 0deg, rgba(56, 189, 248, 0.85) 80deg, transparent 85deg)`;
+        this.joystickDirGlowEl.style.opacity = String(Math.min(1, normDist * 1.15));
+      }
+    };
+
+    const stopJoystick = () => {
+      this.joystickActive = false;
+      this.joystickTouchId = null;
+      this.joystickPointerId = null;
+      this.inputs.moveX = 0;
+      this.inputs.moveZ = 0;
+      this.joystickThumbEl.style.transform = 'translate3d(0px, 0px, 0)';
+      this.joystickDirGlowEl.style.opacity = '0';
+      this.joystickBaseEl.style.borderColor = 'rgba(255, 255, 255, 0.55)';
+      this.joystickBaseEl.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.45), inset 0 0 14px rgba(56, 189, 248, 0.22)';
+    };
+
+    // Multitouch Touch Events for Left Joystick (Isolated by touch.identifier)
+    joyZone.addEventListener(
+      'touchstart',
+      (e: TouchEvent) => {
+        e.preventDefault();
+        if (this.joystickTouchId === null && e.changedTouches.length > 0) {
+          const t = e.changedTouches[0];
+          this.joystickTouchId = t.identifier;
+          this.joystickActive = true;
+          this.joystickCenter = { x: t.clientX, y: t.clientY };
+          this.joystickBaseEl.style.borderColor = '#38bdf8';
+          this.joystickBaseEl.style.boxShadow = '0 0 22px rgba(56, 189, 248, 0.65), inset 0 0 18px rgba(56, 189, 248, 0.35)';
+          updateJoystickFromPoint(t.clientX, t.clientY);
         }
-      }
-    }, { passive: false });
+      },
+      { passive: false }
+    );
 
-    const endJoy = (e: TouchEvent) => {
+    joyZone.addEventListener(
+      'touchmove',
+      (e: TouchEvent) => {
+        if (!this.joystickActive || this.joystickTouchId === null) return;
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          if (t.identifier === this.joystickTouchId) {
+            updateJoystickFromPoint(t.clientX, t.clientY);
+            break;
+          }
+        }
+      },
+      { passive: false }
+    );
+
+    const onJoyTouchEnd = (e: TouchEvent) => {
+      if (this.joystickTouchId === null) return;
       for (let i = 0; i < e.changedTouches.length; i++) {
         if (e.changedTouches[i].identifier === this.joystickTouchId) {
-          this.joystickActive = false;
-          this.joystickTouchId = null;
-          this.joystickBaseEl.style.display = 'none';
-          this.inputs.moveX = 0;
-          this.inputs.moveZ = 0;
+          stopJoystick();
+          break;
         }
       }
     };
-    joyZone.addEventListener('touchend', endJoy);
-    joyZone.addEventListener('touchcancel', endJoy);
+    joyZone.addEventListener('touchend', onJoyTouchEnd, { passive: false });
+    joyZone.addEventListener('touchcancel', onJoyTouchEnd, { passive: false });
 
-    this.container.appendChild(joyZone);
+    // Fallback Pointer Events (for touch-screen laptops / stylus / DevTools mouse emulation when touchstart doesn't fire)
+    joyZone.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return; // Handled by touchstart for true multitouch
+      e.preventDefault();
+      if (this.joystickPointerId !== null) return;
+      this.joystickPointerId = e.pointerId;
+      this.joystickActive = true;
+      try {
+        joyZone.setPointerCapture(e.pointerId);
+      } catch (_) {}
+      this.joystickBaseEl.style.borderColor = '#38bdf8';
+      updateJoystickFromPoint(e.clientX, e.clientY);
+    });
 
-    // 2. TOUCH ACTION BUTTONS (Right screen bottom safe area)
-    const btnContainer = document.createElement('div');
-    btnContainer.style.cssText = `
+    joyZone.addEventListener('pointermove', (e: PointerEvent) => {
+      if (e.pointerType === 'touch' || !this.joystickActive || e.pointerId !== this.joystickPointerId) return;
+      e.preventDefault();
+      updateJoystickFromPoint(e.clientX, e.clientY);
+    });
+
+    const onJoyPointerEnd = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' || e.pointerId !== this.joystickPointerId) return;
+      stopJoystick();
+    };
+    joyZone.addEventListener('pointerup', onJoyPointerEnd);
+    joyZone.addEventListener('pointercancel', onJoyPointerEnd);
+    joyZone.addEventListener('lostpointercapture', onJoyPointerEnd);
+
+    this.mobileControlsRoot.appendChild(joyZone);
+
+    // =========================================================================
+    // 2. RIGHT-HAND 2×2 ERGONOMIC ACTION BUTTON CLUSTER (PHẦN 2)
+    // Layout:
+    //   Row 1: [ 🎯 Ném (Secondary) ]   [ ✋ Cầm/Thả (Primary) ]
+    //   Row 2: [ ⚡ Lướt (Secondary) ]  [ 🔪 Cắt/Nấu (Primary) ]
+    // =========================================================================
+    const btnCluster = document.createElement('div');
+    btnCluster.id = 'hud-action-cluster';
+    btnCluster.style.cssText = `
       position: absolute;
-      bottom: 20px;
-      right: 20px;
-      display: flex;
-      gap: 14px;
-      align-items: flex-end;
+      right: calc(clamp(14px, 2.8vw, 24px) + env(safe-area-inset-right, 0px));
+      bottom: calc(clamp(14px, 2.8vh, 24px) + env(safe-area-inset-bottom, 0px));
+      display: grid;
+      grid-template-columns: auto auto;
+      grid-template-rows: auto auto;
+      gap: clamp(8px, 1.8vmin, 12px);
+      align-items: center;
+      justify-items: center;
       pointer-events: auto;
+      touch-action: none;
     `;
 
-    // Dash / Sprint (Indigo with lightning)
-    this.dashBtnEl = this.createTouchButton('⚡<br>LƯỚT', '#6366f1', '#4f46e5', 66, () => {
-      this.inputs.isDashJustPressed = true;
-    });
+    // Top-Left (Secondary: 54-62px): Ném (Purple #8b5cf6)
+    const throwBtn = this.createTouchButton(
+      '🎯',
+      'Ném',
+      '#8b5cf6',
+      '#7c3aed',
+      'clamp(54px, 12.8vmin, 62px)',
+      false,
+      () => {
+        this.inputs.isThrowJustPressed = true;
+      }
+    );
 
-    // Pickup / Drop (Green)
-    const pickupBtn = this.createTouchButton('CẦM<br>THẢ', '#10b981', '#059669', 72, () => {
-      this.inputs.isPickupJustPressed = true;
-    });
+    // Top-Right (Primary: 64-74px): Cầm/Thả (Green #10b981)
+    const pickupBtn = this.createTouchButton(
+      '✋',
+      'Cầm/Thả',
+      '#10b981',
+      '#059669',
+      'clamp(64px, 15.2vmin, 74px)',
+      true,
+      () => {
+        this.inputs.isPickupJustPressed = true;
+      }
+    );
 
-    //Contextual Smart Action Button (CẮT / NẤU / RỬA / GIAO MÓN) - Single-tap trigger!
-    this.actionBtnEl = this.createTouchButton('🔪<br>CẮT', '#f97316', '#ea580c', 80, () => {
-      if (!this.actionBtnEnabled) return;
-      this.inputs.isActionJustPressed = true;
-    }, (pressed) => {
-      this.inputs.isActionPressed = this.actionBtnEnabled && pressed;
-    });
+    // Bottom-Left (Secondary: 54-62px): Lướt (Blue #3b82f6)
+    this.dashBtnEl = this.createTouchButton(
+      '⚡',
+      'Lướt',
+      '#3b82f6',
+      '#2563eb',
+      'clamp(54px, 12.8vmin, 62px)',
+      false,
+      () => {
+        this.inputs.isDashJustPressed = true;
+      }
+    );
 
-    // Throw (Purple)
-    const throwBtn = this.createTouchButton('NÉM', '#8b5cf6', '#7c3aed', 62, () => {
-      this.inputs.isThrowJustPressed = true;
-    });
+    // Bottom-Right (Primary: 64-74px): Cắt/Nấu Contextual Smart Action (Orange #f97316)
+    this.actionBtnEl = this.createTouchButton(
+      '🔪',
+      'Cắt/Nấu',
+      '#f97316',
+      '#ea580c',
+      'clamp(64px, 15.2vmin, 74px)',
+      true,
+      () => {
+        if (!this.actionBtnEnabled) return;
+        this.inputs.isActionJustPressed = true;
+      },
+      (pressed) => {
+        this.inputs.isActionPressed = this.actionBtnEnabled && pressed;
+      }
+    );
 
-    btnContainer.appendChild(this.dashBtnEl);
-    btnContainer.appendChild(throwBtn);
-    btnContainer.appendChild(pickupBtn);
-    btnContainer.appendChild(this.actionBtnEl);
-    this.container.appendChild(btnContainer);
+    // Append in exact 2x2 grid order: Top-Left (Ném), Top-Right (Cầm/Thả), Bottom-Left (Lướt), Bottom-Right (Cắt/Nấu)
+    btnCluster.appendChild(throwBtn);
+    btnCluster.appendChild(pickupBtn);
+    btnCluster.appendChild(this.dashBtnEl);
+    btnCluster.appendChild(this.actionBtnEl);
 
-    this.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
+    this.mobileControlsRoot.appendChild(btnCluster);
+    this.container.appendChild(this.mobileControlsRoot);
+
+    this.updateContextualActionButton('🔪<br>Cắt/Nấu', '#475569', false);
   }
 
   /**
    * Dynamically updates the Smart Contextual Action Button based on what equipment
-   * and ingredient the player is facing/holding (CẮT, NẤU, RỬA, GIAO MÓN, or Disabled).
+   * and ingredient the player is facing/holding (Cắt, Nấu, Rửa, Giao món, Nhặt mặt, or Disabled).
    */
   public updateContextualActionButton(labelHtml: string, color: string, enabled: boolean) {
     if (!this.actionBtnEl) return;
@@ -814,25 +1209,67 @@ export class HUDOverlay3D {
     this.currentActionLabel = `${labelHtml}_${color}_${enabled}`;
     this.actionBtnEnabled = enabled;
 
-    const span = this.actionBtnEl.querySelector('span');
-    if (span) {
-      span.innerHTML = labelHtml;
+    // Parse icon + label from labelHtml (e.g. "🔪<br>CẮT" -> icon "🔪", text "Cắt")
+    const parts = labelHtml.split(/<br\s*\/?>/i);
+    const iconEl = this.actionBtnEl.querySelector('.btn-icon') as HTMLElement | null;
+    const textEl = this.actionBtnEl.querySelector('.btn-label') as HTMLElement | null;
+    if (iconEl && textEl) {
+      if (parts.length >= 2) {
+        iconEl.innerHTML = parts[0].trim();
+        textEl.innerHTML = this.formatFriendlyLabel(parts[1].trim());
+      } else {
+        iconEl.innerHTML = '🔪';
+        textEl.innerHTML = this.formatFriendlyLabel(parts[0].trim());
+      }
     }
 
     this.actionBtnEl.dataset.baseColor = color;
-    this.actionBtnEl.style.background = color;
+    this.actionBtnEl.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 78%)`;
     if (enabled) {
       this.actionBtnEl.style.opacity = '1.0';
       this.actionBtnEl.style.filter = 'none';
       this.actionBtnEl.style.cursor = 'pointer';
-      this.actionBtnEl.style.boxShadow = `0 0 18px ${color}99, 0 4px 14px rgba(0, 0, 0, 0.45)`;
+      this.actionBtnEl.style.borderColor = '#ffffff';
+      this.actionBtnEl.style.boxShadow = `0 0 16px ${color}88, 0 5px 14px rgba(0, 0, 0, 0.45), inset 0 2px 3px rgba(255, 255, 255, 0.45)`;
     } else {
-      this.actionBtnEl.style.opacity = '0.38';
-      this.actionBtnEl.style.filter = 'grayscale(65%)';
+      this.actionBtnEl.style.opacity = '0.45';
+      this.actionBtnEl.style.filter = 'grayscale(55%)';
       this.actionBtnEl.style.cursor = 'default';
-      this.actionBtnEl.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.25)';
+      this.actionBtnEl.style.borderColor = 'rgba(255, 255, 255, 0.55)';
+      this.actionBtnEl.style.boxShadow = '0 3px 8px rgba(0, 0, 0, 0.3)';
       this.inputs.isActionPressed = false;
     }
+  }
+
+  private formatFriendlyLabel(raw: string): string {
+    const map: Record<string, string> = {
+      'CẮT': 'Cắt',
+      'NẤU': 'Nấu',
+      'RỬA': 'Rửa',
+      'GIAO MÓN': 'Giao món',
+      'BỎ RÁC': 'Bỏ rác',
+      'PHUN BỌT': 'Phun bọt',
+      'ĐANG CHÁY': 'Đang cháy',
+      'NHẶT MẶT BÀN': 'Nhặt mặt',
+      'LẤY NGUYÊN LIỆU': 'Lấy đồ',
+      'ĐẶT & LẤY': 'Đặt & Lấy',
+      'ĐẶT KẾ BÊN': 'Đặt cạnh',
+      'CẮT/NẤU': 'Cắt/Nấu',
+      'CẮT NẤU': 'Cắt/Nấu'
+    };
+    const upper = raw.toUpperCase();
+    return map[upper] || raw;
+  }
+
+  private lightenHex(hex: string): string {
+    if (hex === '#f97316' || hex === '#ea580c') return '#fb923c';
+    if (hex === '#10b981' || hex === '#059669') return '#34d399';
+    if (hex === '#3b82f6' || hex === '#2563eb') return '#60a5fa';
+    if (hex === '#8b5cf6' || hex === '#7c3aed') return '#a78bfa';
+    if (hex === '#0ea5e9' || hex === '#0284c7') return '#38bdf8';
+    if (hex === '#ef4444') return '#f87171';
+    if (hex === '#f59e0b') return '#fbbf24';
+    return '#64748b';
   }
 
   public showFloatingPopup(text: string, borderColor: string = '#fbbf24') {
@@ -840,25 +1277,26 @@ export class HUDOverlay3D {
     popup.innerHTML = text;
     popup.style.cssText = `
       position: absolute;
-      top: 90px;
+      top: clamp(68px, 14vh, 92px);
       left: 50%;
       transform: translate(-50%, 0) scale(0.85);
       background: rgba(15, 23, 42, 0.94);
-      border: 3px solid ${borderColor};
-      border-radius: 18px;
-      padding: 8px 22px;
+      border: 2.5px solid ${borderColor};
+      border-radius: 16px;
+      padding: 6px 18px;
       color: #ffffff;
       font-weight: 900;
-      font-size: 20px;
+      font-size: clamp(14px, 2.8vmin, 19px);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
       pointer-events: none;
       z-index: 80;
       opacity: 1;
+      white-space: nowrap;
       transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.75s ease-out;
     `;
     this.container.appendChild(popup);
     requestAnimationFrame(() => {
-      popup.style.transform = 'translate(-50%, -32px) scale(1.05)';
+      popup.style.transform = 'translate(-50%, -28px) scale(1.04)';
       popup.style.opacity = '0';
     });
     setTimeout(() => {
@@ -869,59 +1307,69 @@ export class HUDOverlay3D {
   public updateDashCooldown(remainingSeconds: number, totalCooldown: number) {
     if (!this.dashBtnEl) return;
     const ringEl = this.dashBtnEl.querySelector('.dash-cooldown-ring') as HTMLElement | null;
+    const cdTextEl = this.dashBtnEl.querySelector('.dash-cooldown-text') as HTMLElement | null;
     if (remainingSeconds > 0 && totalCooldown > 0) {
       const progress = Math.max(0, Math.min(1, 1 - remainingSeconds / totalCooldown));
       const deg = Math.round(progress * 360);
-      this.dashBtnEl.style.opacity = '0.68';
-      this.dashBtnEl.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.35)';
+      this.dashBtnEl.style.opacity = '0.75';
       if (ringEl) {
-        ringEl.style.background = `conic-gradient(#38bdf8 ${deg}deg, rgba(15, 23, 42, 0.75) ${deg}deg)`;
+        ringEl.style.background = `conic-gradient(rgba(56, 189, 248, 0.45) ${deg}deg, rgba(15, 23, 42, 0.82) ${deg}deg)`;
         ringEl.style.opacity = '1';
+      }
+      if (cdTextEl) {
+        cdTextEl.innerText = `${remainingSeconds.toFixed(1)}s`;
+        cdTextEl.style.opacity = '1';
       }
     } else {
       this.dashBtnEl.style.opacity = '1.0';
-      this.dashBtnEl.style.boxShadow = '0 0 16px rgba(99, 102, 241, 0.85), 0 4px 14px rgba(0, 0, 0, 0.4)';
       if (ringEl) {
-        ringEl.style.background = 'conic-gradient(#a5b4fc 360deg, transparent 360deg)';
         ringEl.style.opacity = '0';
+      }
+      if (cdTextEl) {
+        cdTextEl.style.opacity = '0';
       }
     }
   }
 
   private createTouchButton(
-    html: string,
+    icon: string,
+    labelText: string,
     color: string,
     activeColor: string,
-    size: number,
+    sizeCss: string,
+    isPrimary: boolean,
     onTap: () => void,
     onHold?: (pressed: boolean) => void
   ): HTMLElement {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.tabIndex = -1;
+    btn.dataset.baseColor = color;
     btn.style.cssText = `
       position: relative;
-      width: ${size}px;
-      height: ${size}px;
+      width: ${sizeCss};
+      height: ${sizeCss};
       border-radius: 50%;
-      background: ${color};
+      background: radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 78%);
       border: 3px solid #ffffff;
       color: #ffffff;
       font-weight: 900;
-      font-size: ${size < 70 ? '11px' : '13px'};
-      line-height: 1.2;
       text-align: center;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45), inset 0 2px 3px rgba(255, 255, 255, 0.45);
       user-select: none;
       -webkit-user-select: none;
       touch-action: none;
       outline: none;
       overflow: hidden;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      transition: transform 0.08s, opacity 0.12s, box-shadow 0.15s;
+      gap: 1px;
+      padding: 2px;
+      box-sizing: border-box;
+      transition: transform 0.07s ease, opacity 0.12s ease, box-shadow 0.15s ease;
     `;
 
     const ring = document.createElement('div');
@@ -932,46 +1380,136 @@ export class HUDOverlay3D {
       border-radius: 50%;
       pointer-events: none;
       opacity: 0;
-      mix-blend-mode: screen;
+      z-index: 3;
     `;
     btn.appendChild(ring);
 
-    const label = document.createElement('span');
-    label.style.cssText = 'position: relative; z-index: 2; pointer-events: none;';
-    label.innerHTML = html;
-    btn.appendChild(label);
+    const cdText = document.createElement('div');
+    cdText.className = 'dash-cooldown-text';
+    cdText.style.cssText = `
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: #fef08a;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 4;
+    `;
+    btn.appendChild(cdText);
 
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'btn-icon';
+    iconSpan.style.cssText = `
+      position: relative;
+      z-index: 2;
+      pointer-events: none;
+      font-size: ${isPrimary ? 'clamp(18px, 4.2vmin, 22px)' : 'clamp(15px, 3.6vmin, 18px)'};
+      line-height: 1.05;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
+    `;
+    iconSpan.innerHTML = icon;
+    btn.appendChild(iconSpan);
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'btn-label';
+    labelSpan.style.cssText = `
+      position: relative;
+      z-index: 2;
+      pointer-events: none;
+      font-size: ${isPrimary ? 'clamp(10px, 2.2vmin, 11.5px)' : 'clamp(9.5px, 2vmin, 10.5px)'};
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: 0.1px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+      white-space: nowrap;
+    `;
+    labelSpan.innerHTML = labelText;
+    btn.appendChild(labelSpan);
+
+    let activeTouchId: number | null = null;
     let activePointerId: number | null = null;
 
-    const press = (e: PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      btn.blur();
-      if (activePointerId !== null) return;
-      activePointerId = e.pointerId;
-      try {
-        btn.setPointerCapture(e.pointerId);
-      } catch (_) {}
+    const applyVisualPress = () => {
       btn.style.transform = 'scale(0.90)';
       btn.style.background = activeColor;
-      onTap();
-      if (onHold) onHold(true);
     };
 
-    const release = (e: PointerEvent) => {
+    const applyVisualRelease = () => {
+      btn.style.transform = 'scale(1)';
+      const base = btn.dataset.baseColor || color;
+      btn.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(base)} 0%, ${base} 78%)`;
+    };
+
+    // Dedicated Touch Listeners (Isolated per touch.identifier so holding Left Joystick never blocks Right Buttons!)
+    btn.addEventListener(
+      'touchstart',
+      (e: TouchEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.blur();
+        if (activeTouchId !== null || e.changedTouches.length === 0) return;
+        activeTouchId = e.changedTouches[0].identifier;
+        applyVisualPress();
+        onTap();
+        if (onHold) onHold(true);
+      },
+      { passive: false }
+    );
+
+    const onBtnTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (activeTouchId === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === activeTouchId) {
+          activeTouchId = null;
+          applyVisualRelease();
+          if (onHold) onHold(false);
+          break;
+        }
+      }
+    };
+    btn.addEventListener('touchend', onBtnTouchEnd, { passive: false });
+    btn.addEventListener('touchcancel', onBtnTouchEnd, { passive: false });
+
+    // Non-touch Pointer Listeners (for Desktop mouse testing or stylus)
+    btn.addEventListener(
+      'pointerdown',
+      (e: PointerEvent) => {
+        if (e.pointerType === 'touch') return; // Handled by touchstart
+        e.preventDefault();
+        e.stopPropagation();
+        btn.blur();
+        if (activePointerId !== null) return;
+        activePointerId = e.pointerId;
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        applyVisualPress();
+        onTap();
+        if (onHold) onHold(true);
+      },
+      { passive: false }
+    );
+
+    const onBtnPointerRelease = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return;
       e.preventDefault();
       e.stopPropagation();
       if (activePointerId !== null && e.pointerId !== activePointerId) return;
       activePointerId = null;
-      btn.style.transform = 'scale(1)';
-      btn.style.background = btn.dataset.baseColor || color;
+      applyVisualRelease();
       if (onHold) onHold(false);
     };
+    btn.addEventListener('pointerup', onBtnPointerRelease, { passive: false });
+    btn.addEventListener('pointercancel', onBtnPointerRelease, { passive: false });
+    btn.addEventListener('lostpointercapture', onBtnPointerRelease, { passive: false });
 
-    btn.addEventListener('pointerdown', press, { passive: false });
-    btn.addEventListener('pointerup', release, { passive: false });
-    btn.addEventListener('pointercancel', release, { passive: false });
-    btn.addEventListener('lostpointercapture', release, { passive: false });
     // Prevent keyboard Space/Enter from ever activating the button
     btn.addEventListener('keydown', (e) => {
       e.preventDefault();
@@ -981,36 +1519,127 @@ export class HUDOverlay3D {
     return btn;
   }
 
-  private buildDesktopHints() {
-    const hint = document.createElement('div');
-    hint.style.cssText = `
+  /**
+   * PHẦN 3.3: Device-Specific Control Hints
+   * - Desktop: Shows keyboard hints ([WASD] | [Shift] | [E] | [Space/F] | [Q]).
+   * - Mobile/Touch: Shows concise touch hint that auto-fades after 6s, plus a compact "?" button to toggle anytime!
+   */
+  private buildControlHints() {
+    // 1. Desktop Keyboard Hint Bar
+    this.desktopHintEl = document.createElement('div');
+    this.desktopHintEl.style.cssText = `
       position: absolute;
       bottom: 8px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(15, 23, 42, 0.78);
       border: 1px solid #334155;
       border-radius: 10px;
       padding: 4px 14px;
-      color: #94a3b8;
+      color: #cbd5e1;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 700;
       pointer-events: none;
       backdrop-filter: blur(4px);
       white-space: nowrap;
     `;
-    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt &nbsp;|&nbsp; <b>[E]</b> Lấy nguyên liệu / Đặt &nbsp;|&nbsp; <b>[Space / F]</b> Nhặt mặt thùng / Cắt / Nấu / 🧯 &nbsp;|&nbsp; <b>[Q]</b> Ném';
-    this.container.appendChild(hint);
+    this.desktopHintEl.innerHTML =
+      '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space / F]</b> Cắt/Nấu/Nhặt mặt &nbsp;|&nbsp; <b>[Q]</b> Ném';
+    this.container.appendChild(this.desktopHintEl);
+
+    // 2. Mobile Touch Hint Bar (Compact + Auto-fading + '?' Toggle Button)
+    this.mobileHintEl = document.createElement('div');
+    this.mobileHintEl.style.cssText = `
+      position: absolute;
+      bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      pointer-events: auto;
+      z-index: 56;
+    `;
+
+    const helpTextPill = document.createElement('div');
+    helpTextPill.style.cssText = `
+      background: rgba(15, 23, 42, 0.84);
+      border: 1px solid #38bdf8;
+      border-radius: 999px;
+      padding: 3px 10px;
+      color: #e2e8f0;
+      font-size: clamp(9.5px, 1.8vmin, 11px);
+      font-weight: 700;
+      white-space: nowrap;
+      backdrop-filter: blur(4px);
+      transition: opacity 0.35s ease;
+    `;
+    helpTextPill.innerHTML = '🕹️ <b>Trái:</b> Di chuyển &nbsp;•&nbsp; ✋ <b>Cầm/Thả:</b> Lấy/Đặt &nbsp;•&nbsp; 🔪 <b>Cắt/Nấu:</b> Thao tác';
+
+    const helpBtn = document.createElement('button');
+    helpBtn.type = 'button';
+    helpBtn.innerHTML = '?';
+    helpBtn.title = 'Ẩn / Hiện hướng dẫn điều khiển cảm ứng';
+    helpBtn.style.cssText = `
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(30, 41, 59, 0.9);
+      border: 1.5px solid #64748b;
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    `;
+
+    let hintVisible = true;
+    const scheduleAutoHide = () => {
+      if (this.mobileHintTimer !== null) window.clearTimeout(this.mobileHintTimer);
+      this.mobileHintTimer = window.setTimeout(() => {
+        hintVisible = false;
+        helpTextPill.style.opacity = '0';
+        helpTextPill.style.pointerEvents = 'none';
+        setTimeout(() => {
+          if (!hintVisible) helpTextPill.style.display = 'none';
+        }, 350);
+      }, 6500);
+    };
+
+    helpBtn.onclick = () => {
+      hintVisible = !hintVisible;
+      if (hintVisible) {
+        helpTextPill.style.display = 'block';
+        requestAnimationFrame(() => {
+          helpTextPill.style.opacity = '1';
+        });
+        scheduleAutoHide();
+      } else {
+        if (this.mobileHintTimer !== null) window.clearTimeout(this.mobileHintTimer);
+        helpTextPill.style.opacity = '0';
+        setTimeout(() => {
+          if (!hintVisible) helpTextPill.style.display = 'none';
+        }, 350);
+      }
+    };
+
+    this.mobileHintEl.appendChild(helpTextPill);
+    this.mobileHintEl.appendChild(helpBtn);
+    this.container.appendChild(this.mobileHintEl);
+
+    scheduleAutoHide();
   }
 
   private buildGameOverModal() {
     this.gameOverEl = document.createElement('div');
     this.gameOverEl.style.cssText = `
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       background: rgba(11, 15, 25, 0.88);
       display: none;
       flex-direction: column;
@@ -1022,11 +1651,11 @@ export class HUDOverlay3D {
     `;
 
     this.gameOverEl.innerHTML = `
-      <div style="background: #1e293b; border: 3px solid #fbbf24; border-radius: 20px; padding: 32px 40px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.8); max-width: 400px; width: 90%;">
-        <h1 style="color: #fbbf24; font-size: 36px; font-weight: 900; margin-bottom: 12px;">HẾT GIỜ!</h1>
-        <p style="color: #94a3b8; font-size: 15px; margin-bottom: 24px;">Nhà bếp đã hoàn thành ca phục vụ xuất sắc!</p>
-        <div id="final-score" style="font-size: 44px; font-weight: 900; color: #38bdf8; margin-bottom: 28px;">0 ĐIỂM</div>
-        <button id="btn-back-lobby" style="background: #2563eb; color: #ffffff; border: none; padding: 14px 28px; font-size: 16px; font-weight: bold; border-radius: 12px; cursor: pointer; width: 100%;">
+      <div style="background: #1e293b; border: 3px solid #fbbf24; border-radius: 20px; padding: clamp(20px, 4vh, 32px) clamp(24px, 5vw, 40px); text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.8); max-width: 400px; width: 88%;">
+        <h1 style="color: #fbbf24; font-size: clamp(26px, 6vmin, 36px); font-weight: 900; margin-bottom: 10px;">HẾT GIỜ!</h1>
+        <p style="color: #94a3b8; font-size: clamp(13px, 2.6vmin, 15px); margin-bottom: 20px;">Nhà bếp đã hoàn thành ca phục vụ xuất sắc!</p>
+        <div id="final-score" style="font-size: clamp(32px, 7vmin, 44px); font-weight: 900; color: #38bdf8; margin-bottom: 24px;">0 ĐIỂM</div>
+        <button id="btn-back-lobby" style="background: #2563eb; color: #ffffff; border: none; padding: 12px 24px; font-size: 15px; font-weight: bold; border-radius: 12px; cursor: pointer; width: 100%;">
           VỀ SẢNH CHÍNH
         </button>
       </div>
@@ -1049,6 +1678,19 @@ export class HUDOverlay3D {
   }
 
   public destroy() {
+    window.removeEventListener('resize', this.boundOnResize);
+    window.removeEventListener('orientationchange', this.boundOnResize);
+    document.removeEventListener('fullscreenchange', this.boundOnResize);
+    window.removeEventListener('blur', this.boundOnResetInputs);
+    document.removeEventListener('visibilitychange', this.boundOnResetInputs);
+    window.removeEventListener('touchstart', this.boundOnFirstTouch);
+    if (this.mobileHintTimer !== null) {
+      window.clearTimeout(this.mobileHintTimer);
+    }
+    const globalFsBtn = document.getElementById('fs-btn');
+    if (globalFsBtn) {
+      globalFsBtn.style.display = '';
+    }
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
