@@ -11,12 +11,14 @@ import { SoundManager } from '../../game/systems/SoundManager';
 import { NetworkManager } from '../../multiplayer/NetworkManager';
 import { CounterType, IngredientType, KitchenItem, StoveState } from '../../game/types';
 import { CookingConfig } from '../../game/config/CookingConfig';
+import { QualityManager3D } from '../core/QualityManager3D';
 
 export interface GameScene3DConfig {
   isMultiplayer: boolean;
   roomCode?: string;
   mapId?: string;
   skin?: string;
+  playerCount?: number;
   playerName?: string;
   onExit: () => void;
 }
@@ -84,6 +86,8 @@ export class GameScene3D {
   private matchTimeRemaining = 180;
   private isGameOver = false;
   private lastNetworkSendTime = 0;
+  private lastSentPos = { x: -999, z: -999, fx: 0, fz: 1 };
+  private readonly boundRenderLoop = (t: number) => this.renderLoop(t);
 
   // Keyboard state
   private keys: { [key: string]: boolean } = {};
@@ -102,24 +106,26 @@ export class GameScene3D {
 
     this.isRunning = true;
     this.lastTime = performance.now();
-    requestAnimationFrame(this.renderLoop.bind(this));
+    requestAnimationFrame(this.boundRenderLoop);
   }
 
   private initThree() {
+    const quality = QualityManager3D.detectInitialProfile();
+
     this.scene = new THREE.Scene();
     // Warm Cozy Restaurant Ambiance (No stark pitch black void)
     this.scene.background = new THREE.Color(0x182030);
 
-    // High quality WebGL Renderer with Soft Cartoon Shadows
+    // Adaptive WebGL Renderer (preserveDrawingBuffer: false avoids 30-50% mobile GPU framebuffer copy stall!)
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: quality.antialias,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: false
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.maxPixelRatio));
+    this.renderer.shadowMap.enabled = quality.shadowMapEnabled;
+    this.renderer.shadowMap.type = quality.shadowMapType;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
 
@@ -129,15 +135,15 @@ export class GameScene3D {
     this.cameraSystem = new IsometricCamera(window.innerWidth / window.innerHeight);
 
     // 1. Warm Cartoon Hemisphere Light (Peach Sky + Soft Slate Ground)
-    const hemiLight = new THREE.HemisphereLight(0xffedd5, 0x475569, 0.85);
+    const hemiLight = new THREE.HemisphereLight(0xffedd5, 0x475569, 0.88);
     this.scene.add(hemiLight);
 
-    // 2. Main Key Sun Light (Casts soft directional shadows)
+    // 2. Main Key Sun Light (Casts directional shadows sized per quality profile)
     const sunLight = new THREE.DirectionalLight(0xffffff, 1.35);
     sunLight.position.set(5, 14, 8);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
+    sunLight.castShadow = quality.shadowMapEnabled;
+    sunLight.shadow.mapSize.width = quality.shadowMapSize;
+    sunLight.shadow.mapSize.height = quality.shadowMapSize;
     sunLight.shadow.camera.near = 0.5;
     sunLight.shadow.camera.far = 35;
     sunLight.shadow.camera.left = -8;
@@ -166,7 +172,8 @@ export class GameScene3D {
     this.map.buildMap(this.config.mapId || 'traditional');
 
     this.particles = new ParticleSystem3D(this.scene);
-    this.recipeManager = new RecipeManager();
+    const difficulty = this.config.mapId === 'split_kitchen' ? 'hard' : 'normal';
+    this.recipeManager = new RecipeManager(this.config.playerCount || 1, difficulty);
 
     // Spawn local chef in kitchen open area
     const skinId = (this.config.skin || 'chef_classic') as ChefSkinId;
@@ -375,11 +382,7 @@ export class GameScene3D {
 
       // Only rebuild the 3D mesh if the item type or plate contents actually changed!
       if (prevType !== nextType || prevPlate !== nextPlate) {
-        counter.itemHolder.clear();
-        if (data.item) {
-          const mesh = Ingredient3DFactory.createMesh(data.item);
-          counter.itemHolder.add(mesh);
-        }
+        this.map.placeItemInCenterSlot(counter, data.item);
       }
     };
     room.onMessage('remote_counter_update', handleCounterSync);
@@ -433,10 +436,12 @@ export class GameScene3D {
     const delta = Math.min((currentTime - this.lastTime) / 1000, 0.1);
     this.lastTime = currentTime;
 
+    QualityManager3D.monitorFrame(delta, this.renderer);
+
     this.update(delta);
     this.renderer.render(this.scene, this.cameraSystem.camera);
 
-    requestAnimationFrame(this.renderLoop.bind(this));
+    requestAnimationFrame(this.boundRenderLoop);
   }
 
   private update(delta: number) {
@@ -967,8 +972,7 @@ export class GameScene3D {
           this.localPlayer.isChopping = false;
 
           this.transformSlicedIngredient(c.currentItem);
-          c.itemHolder.clear();
-          c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+          this.map.placeItemInCenterSlot(c, c.currentItem);
           this.map.triggerCounterBounce(c.id);
           this.sound.playPickup();
           this.broadcastCounterUpdate(c);
@@ -1161,8 +1165,7 @@ export class GameScene3D {
             c.currentItem.cookingTimer = cookDuration;
             c.currentItem.stoveState = StoveState.COOKED;
 
-            c.itemHolder.clear();
-            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+            this.map.placeItemInCenterSlot(c, c.currentItem);
             this.map.triggerCounterBounce(c.id);
             this.sound.playCookedReady();
             this.hud.showFloatingPopup('✅ THỊT ĐÃ CHÍN! LẤY RA TRƯỚC KHI CHÁY!', '#10b981');
@@ -1237,8 +1240,7 @@ export class GameScene3D {
             this.sound.playFireIgnite();
             this.hud.showFloatingPopup('🔥 THỨC ĂN CHÁY! BẾP ĐANG BỐC LỬA (DÙNG 🧯)!', '#ef4444');
 
-            c.itemHolder.clear();
-            c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
+            this.map.placeItemInCenterSlot(c, c.currentItem);
             if (!this.config.isMultiplayer || this.network.isHost) {
               this.broadcastCounterUpdate(c);
             }
@@ -1303,10 +1305,7 @@ export class GameScene3D {
     if (counter.type === CounterType.CUTTING_BOARD) {
       // If holding a choppable ingredient and board is empty -> auto-place it onto the board!
       if (!counter.currentItem && this.heldItem && this.isChoppable(this.heldItem.type)) {
-        counter.currentItem = this.heldItem;
-        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
-        counter.itemHolder.clear();
-        counter.itemHolder.add(mesh);
+        this.map.placeItemInCenterSlot(counter, this.heldItem);
         this.setHeldItem(null);
         this.map.triggerCounterBounce(counter.id);
         this.sound.playDrop();
@@ -1586,9 +1585,7 @@ export class GameScene3D {
         } else if (fallbackCounter.type === CounterType.STOVE) {
           this.placeItemOnStove(fallbackCounter, this.heldItem);
         } else {
-          fallbackCounter.currentItem = this.heldItem;
-          fallbackCounter.itemHolder.clear();
-          fallbackCounter.itemHolder.add(Ingredient3DFactory.createMesh(this.heldItem));
+          this.map.placeItemInCenterSlot(fallbackCounter, this.heldItem);
           fallbackCounter.itemPlaceBounceTimer = 0.24;
         }
         this.setHeldItem(null);
@@ -1696,10 +1693,7 @@ export class GameScene3D {
       if (counter.type === CounterType.STOVE) {
         this.placeItemOnStove(counter, this.heldItem);
       } else {
-        counter.currentItem = this.heldItem;
-        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
-        counter.itemHolder.clear();
-        counter.itemHolder.add(mesh);
+        this.map.placeItemInCenterSlot(counter, this.heldItem);
       }
 
       counter.itemPlaceBounceTimer = 0.24;
@@ -1725,8 +1719,7 @@ export class GameScene3D {
         if (!counter.currentItem.plateContents) counter.currentItem.plateContents = [];
         counter.currentItem.plateContents.push(this.heldItem.type);
 
-        counter.itemHolder.clear();
-        counter.itemHolder.add(Ingredient3DFactory.createMesh(counter.currentItem));
+        this.map.placeItemInCenterSlot(counter, counter.currentItem);
         counter.itemPlaceBounceTimer = 0.24;
         this.setHeldItem(null);
         this.localPlayer.playOneShot('DROP');
@@ -1798,8 +1791,7 @@ export class GameScene3D {
       item.stoveState = counter.stoveState;
     }
 
-    counter.itemHolder.clear();
-    counter.itemHolder.add(Ingredient3DFactory.createMesh(item));
+    this.map.placeItemInCenterSlot(counter, item);
   }
 
   private landThrownItem(item: KitchenItem, x: number, z: number) {
@@ -1839,9 +1831,7 @@ export class GameScene3D {
         if (closest.type === CounterType.STOVE) {
           this.placeItemOnStove(closest, item);
         } else {
-          closest.currentItem = item;
-          closest.itemHolder.clear();
-          closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
+          this.map.placeItemInCenterSlot(closest, item);
         }
         this.map.triggerCounterBounce(closest.id);
         this.sound.playDrop();
@@ -1851,9 +1841,7 @@ export class GameScene3D {
       // Never allow the Fire Extinguisher to vanish if thrown off a counter — return it to its station!
       const extStation = this.map.counters.get('counter_3_-3');
       if (extStation && !extStation.currentItem) {
-        extStation.currentItem = item;
-        extStation.itemHolder.clear();
-        extStation.itemHolder.add(Ingredient3DFactory.createMesh(item));
+        this.map.placeItemInCenterSlot(extStation, item);
         this.broadcastCounterUpdate(extStation);
       }
     }
@@ -1931,8 +1919,18 @@ export class GameScene3D {
     if (!this.config.isMultiplayer || !this.network.room) return;
 
     const now = performance.now();
-    if (now - this.lastNetworkSendTime > 45) { // ~22 FPS networking
+    if (now - this.lastNetworkSendTime > 48) { // ~21 FPS networking, only when moved/rotated
+      const moved =
+        Math.hypot(this.playerPos.x - this.lastSentPos.x, this.playerPos.z - this.lastSentPos.z) > 0.003 ||
+        Math.hypot(this.facingDir.x - this.lastSentPos.fx, this.facingDir.z - this.lastSentPos.fz) > 0.01;
+      if (!moved) return;
+
       this.lastNetworkSendTime = now;
+      this.lastSentPos.x = this.playerPos.x;
+      this.lastSentPos.z = this.playerPos.z;
+      this.lastSentPos.fx = this.facingDir.x;
+      this.lastSentPos.fz = this.facingDir.z;
+
       this.network.room.send('player_move', {
         x: this.playerPos.x,
         y: this.playerPos.z,

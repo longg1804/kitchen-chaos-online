@@ -6,6 +6,7 @@ import { Physics3D } from '../core/Physics3D';
 import { TextureGenerator3D } from './TextureGenerator3D';
 import { Ingredient3DFactory } from '../entities/Ingredient3D';
 import { ExternalModelLoader } from '../assets/ExternalModelLoader';
+import { QualityManager3D } from '../core/QualityManager3D';
 
 export interface Counter3DData {
   id: string;
@@ -14,6 +15,8 @@ export interface Counter3DData {
   z: number;
   group: THREE.Group;
   itemHolder: THREE.Group;
+  baseSlotY: number;
+  baseSlotZ: number;
   surfaceSlotGroups: THREE.Group[];
   surfaceItems: KitchenItem[];
   surfaceBounceTimers: number[];
@@ -51,6 +54,14 @@ export class KitchenMap3D {
   public floorMesh!: THREE.Mesh;
   private roomGroup: THREE.Group = new THREE.Group();
   private statusMaterials: Record<string, THREE.SpriteMaterial> = {};
+
+  // Pre-allocated colors for cooking transitions (prevents 6x new THREE.Color allocations every frame!)
+  private readonly rawMeatColor = new THREE.Color(0xef4444);
+  private readonly cookedMeatColor = new THREE.Color(0xc26a1b);
+  private readonly whiteTintColor = new THREE.Color(0xffffff);
+  private readonly searedTintColor = new THREE.Color(0xd97706);
+  private readonly rawFatColor = new THREE.Color(0xfecaca);
+  private readonly cookedFatColor = new THREE.Color(0xfde68a);
 
   constructor(scene: THREE.Scene, physics: Physics3D) {
     this.scene = scene;
@@ -371,9 +382,11 @@ export class KitchenMap3D {
       bulb.position.y = -0.05;
       lampGroup.add(bulb);
 
-      const light = new THREE.PointLight(spot.color, spot.intensity, 6.5, 1.5);
-      light.position.set(0, -0.25, 0);
-      lampGroup.add(light);
+      if (QualityManager3D.getProfile().enablePendantPointLights) {
+        const light = new THREE.PointLight(spot.color, spot.intensity, 6.5, 1.5);
+        light.position.set(0, -0.25, 0);
+        lampGroup.add(light);
+      }
 
       this.roomGroup.add(lampGroup);
     });
@@ -554,16 +567,18 @@ export class KitchenMap3D {
       }
     }
 
-    // Calibrated Snap-to-Slot Item Holder (Item bottom plane rests exactly at surface)
+    // Calibrated Snap-to-Slot Item Holder (Item bottom plane rests exactly at surface center)
     let slotY = 0.845; // Plain flat countertop
     let slotZ = 0;
     if (type === CounterType.CUTTING_BOARD) {
       slotY = 0.895; // On top of butcher block
-      slotZ = 0.02;
+      slotZ = 0.0;
     } else if (type === CounterType.STOVE) {
-      slotY = 0.905; // Inside cast iron frying pan
+      slotY = 0.905; // Centered inside cast iron frying pan
+      slotZ = 0.0;
     } else if (type === CounterType.DELIVERY) {
-      slotY = 0.875; // On top of green delivery conveyor
+      slotY = 0.875; // On top of delivery pass-through tray
+      slotZ = 0.0;
     }
 
     const itemHolder = new THREE.Group();
@@ -619,6 +634,8 @@ export class KitchenMap3D {
       z,
       group,
       itemHolder,
+      baseSlotY: slotY,
+      baseSlotZ: slotZ,
       surfaceSlotGroups,
       surfaceItems: [],
       surfaceBounceTimers: [],
@@ -654,12 +671,31 @@ export class KitchenMap3D {
         id: 'fire_extinguisher_main',
         type: IngredientType.FIRE_EXTINGUISHER
       };
-      counterData.currentItem = extItem;
-      counterData.itemHolder.add(Ingredient3DFactory.createMesh(extItem));
+      this.placeItemInCenterSlot(counterData, extItem);
     }
 
     this.counters.set(id, counterData);
     return counterData;
+  }
+
+  /**
+   * PHẦN 5: Unified Snap-to-Anchor Item Placement System.
+   * Guarantees every placed plate, dish, or ingredient snaps cleanly to the exact center anchor
+   * of the counter without position offset, rotation drift, or surface penetration.
+   */
+  public placeItemInCenterSlot(c: Counter3DData, item: KitchenItem | null) {
+    c.currentItem = item;
+    c.itemHolder.clear();
+    c.itemHolder.position.set(0, c.baseSlotY, c.baseSlotZ);
+    c.itemHolder.rotation.set(0, 0, 0);
+    c.itemHolder.scale.set(1, 1, 1);
+
+    if (item) {
+      const mesh = Ingredient3DFactory.createMesh(item);
+      mesh.position.set(0, 0, 0);
+      mesh.rotation.set(0, 0, 0);
+      c.itemHolder.add(mesh);
+    }
   }
 
   public triggerCounterBounce(counterId: string) {
@@ -716,8 +752,11 @@ export class KitchenMap3D {
       const slotGroup = c.surfaceSlotGroups[i];
       const coord = layoutCoords[i] || { x: 0, z: 0 };
       slotGroup.position.set(coord.x, 0.845, coord.z);
+      slotGroup.rotation.set(0, 0, 0);
 
       const mesh = Ingredient3DFactory.createMesh(item);
+      mesh.position.set(0, 0, 0);
+      mesh.rotation.set(0, 0, 0);
       const isPlate = item.type === IngredientType.PLATE;
       const baseScale =
         count === 1
@@ -764,27 +803,31 @@ export class KitchenMap3D {
   public updateStations(delta: number) {
     const now = performance.now() * 0.001;
     this.counters.forEach((c) => {
-      // 1. Crate drawer slide/bounce & active chopping vibration
+      // 1. Crate / Plate Station bounce & active chopping vibration (Keeps crateDisplayGroup & itemHolder 100% centered!)
       if (c.bounceTimer && c.bounceTimer > 0) {
         c.bounceTimer = Math.max(0, c.bounceTimer - delta);
         const t = c.bounceTimer / 0.24;
-        const pulse = 1 + Math.sin(t * Math.PI) * 0.16;
+        const pulse = 1 + Math.sin(t * Math.PI) * 0.14;
+        const hopY = Math.sin(t * Math.PI) * 0.04;
         if (c.crateDisplayGroup) {
           c.crateDisplayGroup.scale.set(pulse, pulse, pulse);
-          c.crateDisplayGroup.position.z = 0.34 + Math.sin(t * Math.PI) * 0.08;
+          c.crateDisplayGroup.position.set(0, 0.846 + hopY, 0);
         } else {
           c.itemHolder.scale.set(pulse, pulse, pulse);
+          c.itemHolder.position.set(0, c.baseSlotY + hopY, c.baseSlotZ);
         }
       } else if (c.isActivelyChopping && c.currentItem) {
         // Subtle rhythmic squash-and-stretch on food while being chopped on board!
         const chopSquash = Math.sin(now * 26) * 0.07;
         c.itemHolder.scale.set(1 + chopSquash, 1 - chopSquash, 1 + chopSquash);
+        c.itemHolder.position.set(0, c.baseSlotY, c.baseSlotZ);
       } else {
         if (c.crateDisplayGroup) {
           c.crateDisplayGroup.scale.set(1, 1, 1);
-          c.crateDisplayGroup.position.z = 0.34;
+          c.crateDisplayGroup.position.set(0, 0.846, 0);
         }
         c.itemHolder.scale.set(1, 1, 1);
+        c.itemHolder.position.set(0, c.baseSlotY, c.baseSlotZ);
       }
 
       // 1B. Individual Surface Slot Drop-Bounce Animation on Storage Bins
@@ -901,25 +944,19 @@ export class KitchenMap3D {
               c.progressFillMat.color.setHex(0x22c55e); // Green cooking bar (0 -> 100%)
               if (c.statusSprite) c.statusSprite.visible = false;
 
-              // Gradual visual color transition on RAW_MEAT while COOKING (Ruby Red -> Seared Golden-Brown!)
-              const rawColor = new THREE.Color(0xef4444);
-              const cookedColor = new THREE.Color(0xc26a1b);
-              const whiteTint = new THREE.Color(0xffffff);
-              const searedTint = new THREE.Color(0xd97706);
-              const rawFatColor = new THREE.Color(0xfecaca);
-              const cookedFatColor = new THREE.Color(0xfde68a);
+              // Gradual visual color transition on RAW_MEAT while COOKING (Reuses pre-allocated Colors!)
               c.itemHolder.traverse((child) => {
                 if (child instanceof THREE.Mesh) {
                   if (child.userData.isCookingMeat && child.material instanceof THREE.MeshStandardMaterial) {
                     if (child.userData.hasTextureMap) {
-                      child.material.color.lerpColors(whiteTint, searedTint, ratio * 0.85);
+                      child.material.color.lerpColors(this.whiteTintColor, this.searedTintColor, ratio * 0.85);
                       child.material.emissive.setHex(0x451a03);
                       child.material.emissiveIntensity = ratio * 0.25;
                     } else {
-                      child.material.color.lerpColors(rawColor, cookedColor, ratio * 0.85);
+                      child.material.color.lerpColors(this.rawMeatColor, this.cookedMeatColor, ratio * 0.85);
                     }
                   } else if (child.userData.isCookingFat && child.material instanceof THREE.MeshStandardMaterial) {
-                    child.material.color.lerpColors(rawFatColor, cookedFatColor, ratio * 0.85);
+                    child.material.color.lerpColors(this.rawFatColor, this.cookedFatColor, ratio * 0.85);
                   }
                 }
               });
@@ -1009,10 +1046,12 @@ export class KitchenMap3D {
     coreCone.position.set(0, 0.24, 0.04);
     fireGroup.add(coreCone);
 
-    // Warm orange firelight
-    const fireLight = new THREE.PointLight(0xf97316, 1.8, 3.2);
-    fireLight.position.set(0, 0.55, 0);
-    fireGroup.add(fireLight);
+    // Warm orange firelight (enabled on Desktop High & Mobile Medium)
+    if (QualityManager3D.getProfile().enableFirePointLight) {
+      const fireLight = new THREE.PointLight(0xf97316, 1.8, 3.2);
+      fireLight.position.set(0, 0.55, 0);
+      fireGroup.add(fireLight);
+    }
 
     return fireGroup;
   }

@@ -1,12 +1,13 @@
 import { Room, Client } from 'colyseus';
 import { KitchenRoomState, PlayerState, CounterState, ItemState, OrderState } from '../schemas/KitchenState';
 import { ArraySchema } from '@colyseus/schema';
+import { OrderConfig, computeOrderTime } from '../config/OrderConfig';
 
 const CHEF_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706'];
 
 export class KitchenRoom extends Room<KitchenRoomState> {
   maxClients = 4;
-  private spawnInterval = 14;
+  private spawnInterval = OrderConfig.spawnIntervalSeconds;
   private timeSinceSpawn = 0;
   private orderCounter = 0;
   private currentMapId = 'traditional';
@@ -163,6 +164,16 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
         if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
         if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
+        if (data.item) {
+          const itemState = new ItemState();
+          itemState.type = data.item.type;
+          if (Array.isArray(data.item.plateContents)) {
+            itemState.plateContents = new ArraySchema<string>(...data.item.plateContents);
+          }
+          counter.item = itemState;
+        } else if (data.item === null) {
+          counter.item = null;
+        }
       }
       // Broadcast authoritative counter update (including cookTimer, burnTimer, stoveState, surfaceItems) to all other clients
       this.broadcast('remote_counter_update', data, { except: client });
@@ -391,17 +402,20 @@ export class KitchenRoom extends Room<KitchenRoomState> {
   }
 
   private spawnOrder() {
-    if (this.state.orders.length >= 3) return;
+    if (this.state.orders.length >= OrderConfig.maxConcurrentOrders) return;
 
     this.orderCounter++;
     const chosen = this.recipes[Math.floor(Math.random() * this.recipes.length)];
+    const playerCount = Math.max(1, this.state.players.size);
+    const difficulty = this.currentMapId === 'split_kitchen' ? 'hard' : 'normal';
+    const computedTime = computeOrderTime(chosen.ingredients, playerCount, difficulty);
 
     const order = new OrderState();
     order.id = `order_${this.orderCounter}`;
     order.recipeKey = chosen.key;
     order.name = chosen.name;
-    order.remainingTime = 65;
-    order.maxTime = 65;
+    order.remainingTime = computedTime;
+    order.maxTime = computedTime;
     order.rewardPoints = chosen.points;
     order.requiredIngredients = new ArraySchema<string>(...chosen.ingredients);
 
@@ -437,18 +451,18 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       const order = this.state.orders[i];
       if (!order) continue;
       order.remainingTime -= deltaSeconds;
-      if (order.remainingTime <= 0) {
+      if (order.remainingTime <= -OrderConfig.expireGraceSeconds) {
         this.state.orders.splice(i, 1);
-        this.state.score = Math.max(0, this.state.score - 30);
+        this.state.score = Math.max(0, this.state.score - OrderConfig.expirePenalty);
         this.state.combo = 1;
-        this.broadcast('play_sound', { sound: 'trash', points: -30 });
+        this.broadcast('play_sound', { sound: 'trash', points: -OrderConfig.expirePenalty });
         this.broadcast('score_update', { score: this.state.score, combo: this.state.combo });
         orderChanged = true;
       }
     }
 
     this.timeSinceSpawn += deltaSeconds;
-    if (this.state.orders.length < 3 && this.timeSinceSpawn >= this.spawnInterval) {
+    if (this.state.orders.length < OrderConfig.maxConcurrentOrders && this.timeSinceSpawn >= this.spawnInterval) {
       this.spawnOrder();
       this.timeSinceSpawn = 0;
       orderChanged = true;

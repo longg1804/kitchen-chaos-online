@@ -60,23 +60,28 @@ export class GameScene extends Phaser.Scene {
   private currentRoomCode = '';
   private currentMap: KitchenMapId = KitchenMapId.TRADITIONAL;
   private currentSkin: string = 'chef_classic';
+  private initialPlayerCount: number = 1;
 
   constructor() {
     super('GameScene');
   }
 
-  init(data: { isMultiplayer?: boolean; roomCode?: string; mapId?: KitchenMapId; skin?: string }) {
+  init(data: { isMultiplayer?: boolean; roomCode?: string; mapId?: KitchenMapId; skin?: string; players?: any[] }) {
     this.isMultiplayer = Boolean(data && data.isMultiplayer);
     this.currentRoomCode = (data && data.roomCode) || (this.network.room as any)?.options?.roomCode || '';
     this.currentMap = (data && data.mapId) || KitchenMapId.TRADITIONAL;
     this.currentSkin = (data && data.skin) || 'chef_classic';
+    this.initialPlayerCount = Array.isArray(data?.players) && data.players.length > 0 ? data.players.length : 1;
   }
 
   create() {
-    // 1. Hide 2D Phaser Canvas and launch 3D Three.js Isometric Engine
+    // 1. Hide 2D Phaser Canvas and sleep Phaser's rAF loop while Three.js 3D Engine runs!
     if (this.game.canvas) {
       this.game.canvas.style.display = 'none';
     }
+    try {
+      this.game.loop.sleep();
+    } catch (_) {}
 
     const container = document.getElementById('game-container') || document.body;
     this.gameScene3D = new GameScene3D(container, {
@@ -84,8 +89,12 @@ export class GameScene extends Phaser.Scene {
       roomCode: this.currentRoomCode,
       mapId: this.currentMap,
       skin: this.currentSkin,
+      playerCount: this.initialPlayerCount,
       playerName: localStorage.getItem('kitchen_chaos_player_name') || 'Đầu Bếp',
       onExit: () => {
+        try {
+          this.game.loop.wake();
+        } catch (_) {}
         if (this.game.canvas) {
           this.game.canvas.style.display = 'block';
         }
@@ -95,6 +104,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.events.once('shutdown', () => {
+      try {
+        this.game.loop.wake();
+      } catch (_) {}
       this.gameScene3D?.destroy();
       this.gameScene3D = undefined;
       if (this.game.canvas) {

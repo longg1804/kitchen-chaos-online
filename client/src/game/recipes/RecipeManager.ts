@@ -1,11 +1,14 @@
 import { IngredientType, KitchenItem, OrderRecipe } from '../types';
+import { OrderConfig, OrderDifficulty, computeOrderTime } from '../config/OrderConfig';
 
 export class RecipeManager {
   private activeOrders: OrderRecipe[] = [];
-  private maxConcurrentOrders = 3;
+  private maxConcurrentOrders = OrderConfig.maxConcurrentOrders;
   private orderCounter = 0;
-  private spawnInterval = 14;
+  private spawnInterval = OrderConfig.spawnIntervalSeconds;
   private timeSinceLastSpawn = 0;
+  private playerCount: number;
+  private difficulty: OrderDifficulty;
 
   public score = 0;
   public combo = 1;
@@ -38,7 +41,9 @@ export class RecipeManager {
     }
   };
 
-  constructor() {
+  constructor(playerCount: number = 1, difficulty: OrderDifficulty = 'normal') {
+    this.playerCount = playerCount;
+    this.difficulty = difficulty;
     this.spawnOrder();
     this.spawnOrder();
   }
@@ -51,11 +56,12 @@ export class RecipeManager {
       const order = this.activeOrders[i];
       order.remainingTime -= deltaSeconds;
 
-      if (order.remainingTime <= 0) {
+      // Overtime grace: order stays deliverable for a few seconds after the bar empties
+      if (order.remainingTime <= -OrderConfig.expireGraceSeconds) {
         this.activeOrders.splice(i, 1);
         this.combo = 1;
-        scoreDelta -= 30;
-        this.score = Math.max(0, this.score - 30);
+        scoreDelta -= OrderConfig.expirePenalty;
+        this.score = Math.max(0, this.score - OrderConfig.expirePenalty);
         expired = true;
       }
     }
@@ -77,12 +83,13 @@ export class RecipeManager {
     const chosenKey = recipeKeys[Math.floor(Math.random() * recipeKeys.length)];
     const template = RecipeManager.RECIPES[chosenKey];
 
+    const orderTime = computeOrderTime(template.ingredients, this.playerCount, this.difficulty);
     const order: OrderRecipe = {
       id: `order_${this.orderCounter}`,
       name: template.name,
       requiredIngredients: [...template.ingredients],
-      maxTime: 65,
-      remainingTime: 65,
+      maxTime: orderTime,
+      remainingTime: orderTime,
       rewardPoints: template.points,
       iconTexture: template.icon
     };

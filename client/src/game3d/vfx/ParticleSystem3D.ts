@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { QualityManager3D } from '../core/QualityManager3D';
 
 interface Particle {
   mesh: THREE.Mesh;
@@ -14,29 +15,47 @@ export class ParticleSystem3D {
   public scene: THREE.Scene;
   private particles: Particle[] = [];
 
-  private whitePuffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
-  private blackSmokeMat = new THREE.MeshBasicMaterial({ color: 0x1c1917, transparent: true, opacity: 0.8 });
+  // Shared materials & geometries (Zero per-frame allocation!)
+  private whitePuffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.72 });
+  private blackSmokeMat = new THREE.MeshBasicMaterial({ color: 0x1c1917, transparent: true, opacity: 0.82 });
   private fireMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
   private starGoldMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
   private greenCrumbMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+  private foamMatWhite = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  private foamMatBlue = new THREE.MeshBasicMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.85 });
 
-  private puffGeo = new THREE.SphereGeometry(0.08, 6, 6);
+  private puffGeo = new THREE.SphereGeometry(0.08, 6, 5);
+  private crumbGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
   private starGeo = new THREE.TetrahedronGeometry(0.1);
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
   }
 
+  private canSpawnParticle(): boolean {
+    const profile = QualityManager3D.getProfile();
+    if (this.particles.length >= profile.maxParticles) {
+      // Recycle oldest particle so critical gameplay VFX always appear immediately
+      const oldest = this.particles.shift();
+      if (oldest) {
+        this.scene.remove(oldest.mesh);
+      }
+    }
+    return true;
+  }
+
   // Rapid cartoon dust clouds bursting from feet during dash
   public emitDashDust(x: number, y: number, z: number, dirX: number, dirZ: number) {
-    for (let i = 0; i < 4; i++) {
-      const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat.clone());
+    const profile = QualityManager3D.getProfile();
+    const count = Math.max(2, Math.round(4 * profile.particleSpawnMultiplier));
+    for (let i = 0; i < count; i++) {
+      this.canSpawnParticle();
+      const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat);
       mesh.position.set(x + (Math.random() - 0.5) * 0.2, y + 0.05, z + (Math.random() - 0.5) * 0.2);
       this.scene.add(mesh);
 
       this.particles.push({
         mesh,
-        // Blow backwards opposite to dash direction
         velX: -dirX * (1.2 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
         velY: 0.3 + Math.random() * 0.3,
         velZ: -dirZ * (1.2 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
@@ -49,7 +68,8 @@ export class ParticleSystem3D {
 
   // Steam rising gently from hot stove
   public emitSteam(x: number, y: number, z: number) {
-    const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat.clone());
+    this.canSpawnParticle();
+    const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat);
     mesh.position.set(x + (Math.random() - 0.5) * 0.15, y, z + (Math.random() - 0.5) * 0.15);
     this.scene.add(mesh);
 
@@ -66,7 +86,8 @@ export class ParticleSystem3D {
 
   // Heavy black smoke when food burns
   public emitBurntSmoke(x: number, y: number, z: number) {
-    const mesh = new THREE.Mesh(this.puffGeo, this.blackSmokeMat.clone());
+    this.canSpawnParticle();
+    const mesh = new THREE.Mesh(this.puffGeo, this.blackSmokeMat);
     mesh.position.set(x + (Math.random() - 0.5) * 0.1, y, z + (Math.random() - 0.5) * 0.1);
     this.scene.add(mesh);
 
@@ -83,6 +104,7 @@ export class ParticleSystem3D {
 
   // Rising orange/yellow fire sparks & embers on burning stations
   public emitFireEmbers(x: number, y: number, z: number) {
+    this.canSpawnParticle();
     const mat = Math.random() < 0.5 ? this.fireMat : this.starGoldMat;
     const mesh = new THREE.Mesh(this.puffGeo, mat);
     mesh.scale.setScalar(0.6);
@@ -103,14 +125,13 @@ export class ParticleSystem3D {
   // Pressurized white CO2 / foam spray cone from Fire Extinguisher (45° cone, 3.0 unit range)
   public emitExtinguisherFoam(x: number, y: number, z: number, dirX: number, dirZ: number) {
     const baseAngle = Math.atan2(dirX, dirZ);
-    const halfConeRad = (22.5 * Math.PI) / 180; // ±22.5° = 45° cone
+    const halfConeRad = (22.5 * Math.PI) / 180;
+    const profile = QualityManager3D.getProfile();
+    const count = profile.tier === 'MOBILE_LOW' ? 2 : 3;
 
-    for (let i = 0; i < 3; i++) {
-      const puffMat = new THREE.MeshBasicMaterial({
-        color: i % 2 === 0 ? 0xffffff : 0xe0f2fe,
-        transparent: true,
-        opacity: 0.85
-      });
+    for (let i = 0; i < count; i++) {
+      this.canSpawnParticle();
+      const puffMat = i % 2 === 0 ? this.foamMatWhite : this.foamMatBlue;
       const mesh = new THREE.Mesh(this.puffGeo, puffMat);
       mesh.position.set(
         x + dirX * 0.35 + (Math.random() - 0.5) * 0.08,
@@ -136,8 +157,11 @@ export class ParticleSystem3D {
 
   // Crumbs flying off during cutting / chopping
   public emitChopCrumbs(x: number, y: number, z: number) {
-    for (let i = 0; i < 4; i++) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.04), this.greenCrumbMat);
+    const profile = QualityManager3D.getProfile();
+    const count = Math.max(2, Math.round(4 * profile.particleSpawnMultiplier));
+    for (let i = 0; i < count; i++) {
+      this.canSpawnParticle();
+      const mesh = new THREE.Mesh(this.crumbGeo, this.greenCrumbMat);
       mesh.position.set(x, y, z);
       this.scene.add(mesh);
 
@@ -155,7 +179,10 @@ export class ParticleSystem3D {
 
   // Star celebration burst upon successful delivery
   public emitDeliveryStars(x: number, y: number, z: number) {
-    for (let i = 0; i < 12; i++) {
+    const profile = QualityManager3D.getProfile();
+    const count = Math.max(6, Math.round(12 * profile.particleSpawnMultiplier));
+    for (let i = 0; i < count; i++) {
+      this.canSpawnParticle();
       const mesh = new THREE.Mesh(this.starGeo, this.starGoldMat);
       mesh.position.set(x, y, z);
       this.scene.add(mesh);
@@ -189,19 +216,12 @@ export class ParticleSystem3D {
       p.mesh.position.y += p.velY * delta;
       p.mesh.position.z += p.velZ * delta;
 
-      // Gentle gravity effect for crumbs/stars
       if (p.scaleSpeed < 0) {
         p.velY -= 4.0 * delta;
       }
 
-      // Fade out
       const factor = 1 - p.life / p.maxLife;
-      const mat = p.mesh.material as THREE.Material & { opacity?: number };
-      if (mat.opacity !== undefined) {
-        mat.opacity = factor * 0.8;
-      }
-
-      const s = THREE.MathUtils.clamp(1 + p.scaleSpeed * p.life, 0.1, 3);
+      const s = THREE.MathUtils.clamp((1 + p.scaleSpeed * p.life) * (0.4 + factor * 0.6), 0.08, 2.8);
       p.mesh.scale.set(s, s, s);
     }
   }

@@ -33,6 +33,10 @@ export class HUDOverlay3D {
   private currentActionLabel = '';
   private currentPromptKey = '';
   private lastScore = 0;
+  private lastDisplayedScore = -1;
+  private lastDisplayedCombo = -1;
+  private lastDisplayedTimerSec = -1;
+  private lastDashCdState = '';
   private orderCardEls: Map<
     string,
     {
@@ -671,16 +675,18 @@ export class HUDOverlay3D {
 
       if (entry.removing) return;
 
-      // Update live bar width, color & urgency animation without recreating DOM
-      entry.lastRatio = ratio;
-      entry.fill.style.width = `${ratio * 100}%`;
-      entry.fill.style.background = barColor;
-      if (ratio <= 0.22) {
-        entry.topSquare.style.borderColor = '#ef4444';
-        entry.wrapper.style.animation = 'hudUrgentCard 0.45s infinite';
-      } else {
-        entry.topSquare.style.borderColor = '#f1f5f9';
-        entry.wrapper.style.animation = 'none';
+      // Update live bar width, color & urgency animation without recreating DOM (throttled to >0.3% change)
+      if (Math.abs(ratio - entry.lastRatio) > 0.003) {
+        entry.lastRatio = ratio;
+        entry.fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+        entry.fill.style.background = barColor;
+        if (ratio <= 0.22) {
+          entry.topSquare.style.borderColor = '#ef4444';
+          entry.wrapper.style.animation = 'hudUrgentCard 0.45s infinite';
+        } else {
+          entry.topSquare.style.borderColor = '#f1f5f9';
+          entry.wrapper.style.animation = 'none';
+        }
       }
     });
   }
@@ -841,32 +847,40 @@ export class HUDOverlay3D {
   }
 
   public updateScoreAndTimer(score: number, combo: number, secondsRemaining: number) {
-    this.scoreEl.innerHTML = `🪙 ${score} <span style="color:#fef08a;font-size:0.84em;">(x${combo})</span>`;
-    if (score !== this.lastScore) {
-      if (score > this.lastScore) {
-        this.scoreEl.style.transform = 'scale(1.15)';
-        this.scoreEl.style.boxShadow = '0 0 22px rgba(251, 191, 36, 0.85)';
-        setTimeout(() => {
-          if (this.scoreEl) {
-            this.scoreEl.style.transform = 'scale(1)';
-            this.scoreEl.style.boxShadow = '0 3px 12px rgba(251, 191, 36, 0.25)';
-          }
-        }, 220);
+    if (score !== this.lastDisplayedScore || combo !== this.lastDisplayedCombo) {
+      this.lastDisplayedScore = score;
+      this.lastDisplayedCombo = combo;
+      this.scoreEl.innerHTML = `🪙 ${score} <span style="color:#fef08a;font-size:0.84em;">(x${combo})</span>`;
+      if (score !== this.lastScore) {
+        if (score > this.lastScore) {
+          this.scoreEl.style.transform = 'scale(1.15)';
+          this.scoreEl.style.boxShadow = '0 0 22px rgba(251, 191, 36, 0.85)';
+          setTimeout(() => {
+            if (this.scoreEl) {
+              this.scoreEl.style.transform = 'scale(1)';
+              this.scoreEl.style.boxShadow = '0 3px 12px rgba(251, 191, 36, 0.25)';
+            }
+          }, 220);
+        }
+        this.lastScore = score;
       }
-      this.lastScore = score;
     }
 
-    const m = Math.floor(secondsRemaining / 60).toString().padStart(2, '0');
-    const s = Math.floor(secondsRemaining % 60).toString().padStart(2, '0');
-    this.timerEl.innerText = `⏱ ${m}:${s}`;
-    if (secondsRemaining <= 30) {
-      this.timerEl.style.borderColor = '#ef4444';
-      this.timerEl.style.color = '#f87171';
-      this.timerEl.style.animation = 'hudTimerPulse 0.85s infinite';
-    } else {
-      this.timerEl.style.borderColor = '#38bdf8';
-      this.timerEl.style.color = '#38bdf8';
-      this.timerEl.style.animation = 'none';
+    const wholeSec = Math.max(0, Math.floor(secondsRemaining));
+    if (wholeSec !== this.lastDisplayedTimerSec) {
+      this.lastDisplayedTimerSec = wholeSec;
+      const m = Math.floor(wholeSec / 60).toString().padStart(2, '0');
+      const s = Math.floor(wholeSec % 60).toString().padStart(2, '0');
+      this.timerEl.innerText = `⏱ ${m}:${s}`;
+      if (wholeSec <= 30) {
+        this.timerEl.style.borderColor = '#ef4444';
+        this.timerEl.style.color = '#f87171';
+        this.timerEl.style.animation = 'hudTimerPulse 0.85s infinite';
+      } else {
+        this.timerEl.style.borderColor = '#38bdf8';
+        this.timerEl.style.color = '#38bdf8';
+        this.timerEl.style.animation = 'none';
+      }
     }
   }
 
@@ -1110,10 +1124,14 @@ export class HUDOverlay3D {
     this.mobileControlsRoot.appendChild(joyZone);
 
     // =========================================================================
-    // 2. RIGHT-HAND 2×2 ERGONOMIC ACTION BUTTON CLUSTER (PHẦN 2)
-    // Layout:
+    // 2. RIGHT-HAND 2×2 CIRCULAR CARTOON ILLUSTRATED ACTION BUTTON CLUSTER (PHẦN 2)
+    // Inspired directly by Reference Image 3 (media_1793894014046_fa988af0.jpg):
+    // - Primary Buttons (Cầm/Thả, Cắt/Nấu): 76–90 CSS px (clamp(76px, 17.5vmin, 88px))
+    // - Secondary Buttons (Ném, Lướt): 68–78 CSS px (clamp(68px, 15.2vmin, 78px))
+    // - Grid Spacing: 12–16 CSS px (clamp(12px, 2.5vmin, 16px))
+    // - Layout:
     //   Row 1: [ 🎯 Ném (Secondary) ]   [ ✋ Cầm/Thả (Primary) ]
-    //   Row 2: [ ⚡ Lướt (Secondary) ]  [ 🔪 Cắt/Nấu (Primary) ]
+    //   Row 2: [ 👟 Lướt (Secondary) ]  [ 🔪 Cắt/Nấu (Primary) ]
     // =========================================================================
     const btnCluster = document.createElement('div');
     btnCluster.id = 'hud-action-cluster';
@@ -1124,59 +1142,59 @@ export class HUDOverlay3D {
       display: grid;
       grid-template-columns: auto auto;
       grid-template-rows: auto auto;
-      gap: clamp(8px, 1.8vmin, 12px);
+      gap: clamp(12px, 2.5vmin, 16px);
       align-items: center;
       justify-items: center;
       pointer-events: auto;
       touch-action: none;
     `;
 
-    // Top-Left (Secondary: 54-62px): Ném (Purple #8b5cf6)
+    // Top-Left (Secondary: 68-78px): Ném (Flying Cartoon Ingredient + Motion Arc)
     const throwBtn = this.createTouchButton(
-      '🎯',
+      this.getCartoonActionSVG('THROW'),
       'Ném',
-      '#8b5cf6',
       '#7c3aed',
-      'clamp(54px, 12.8vmin, 62px)',
+      '#5b21b6',
+      'clamp(68px, 15.2vmin, 78px)',
       false,
       () => {
         this.inputs.isThrowJustPressed = true;
       }
     );
 
-    // Top-Right (Primary: 64-74px): Cầm/Thả (Green #10b981)
+    // Top-Right (Primary: 76-88px): Cầm/Thả (Cartoon 5-Fingered Open Hand matching Ref Image 3)
     const pickupBtn = this.createTouchButton(
-      '✋',
+      this.getCartoonActionSVG('HAND'),
       'Cầm/Thả',
       '#10b981',
-      '#059669',
-      'clamp(64px, 15.2vmin, 74px)',
+      '#047857',
+      'clamp(76px, 17.5vmin, 88px)',
       true,
       () => {
         this.inputs.isPickupJustPressed = true;
       }
     );
 
-    // Bottom-Left (Secondary: 54-62px): Lướt (Blue #3b82f6)
+    // Bottom-Left (Secondary: 68-78px): Lướt (Cartoon Speeding Boot + Motion Lines matching Ref Image 3)
     this.dashBtnEl = this.createTouchButton(
-      '⚡',
+      this.getCartoonActionSVG('DASH'),
       'Lướt',
-      '#3b82f6',
       '#2563eb',
-      'clamp(54px, 12.8vmin, 62px)',
+      '#1d4ed8',
+      'clamp(68px, 15.2vmin, 78px)',
       false,
       () => {
         this.inputs.isDashJustPressed = true;
       }
     );
 
-    // Bottom-Right (Primary: 64-74px): Cắt/Nấu Contextual Smart Action (Orange #f97316)
+    // Bottom-Right (Primary: 76-88px): Cắt/Nấu Contextual Smart Action (Cartoon Knife & Cucumber on Board matching Ref Image 3)
     this.actionBtnEl = this.createTouchButton(
-      '🔪',
+      this.getCartoonActionSVG('CHOP'),
       'Cắt/Nấu',
-      '#f97316',
       '#ea580c',
-      'clamp(64px, 15.2vmin, 74px)',
+      '#c2410c',
+      'clamp(76px, 17.5vmin, 88px)',
       true,
       () => {
         if (!this.actionBtnEnabled) return;
@@ -1200,6 +1218,126 @@ export class HUDOverlay3D {
   }
 
   /**
+   * Custom Cartoon SVG Illustrations for Mobile Circular Action Buttons
+   * Designed to match Reference Image 3 (media_1793894014046_fa988af0.jpg) with bold dark outlines,
+   * warm cream highlights, and unmistakable cooking silhouettes.
+   */
+  private getCartoonActionSVG(
+    kind: 'HAND' | 'CHOP' | 'COOK' | 'WASH' | 'DELIVER' | 'DASH' | 'THROW' | 'SPRAY' | 'CRATE'
+  ): string {
+    switch (kind) {
+      case 'HAND':
+        // Large 5-fingered warm-cream cartoon hand (exact match to Ref Image 3 bottom-right)
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <path d="M18,37 C13,34 10,30 12,26 C14,23 18,25 22,29 L22,17 C22,13 27,13 27,17 L27,26 L29,12 C29.5,8 35,8 35,12 L35,25 L37.5,14 C38.5,10 43.5,11 43,15 L41.5,27 L45,19 C46.5,15.5 51,17.5 49.5,21.5 L44.5,38 C42.5,46 36.5,51 28.5,51 C21,51 17.5,45.5 18,37 Z"
+              fill="#fff7ed" stroke="#1c1917" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M24,39 Q31,34 36,42" fill="none" stroke="#d6c7b2" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        `;
+      case 'DASH':
+        // Cartoon dashing shoe/boot with 2 horizontal speed lines on the right (exact match to Ref Image 3 bottom-left)
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <!-- Speed lines -->
+            <line x1="39" y1="24" x2="53" y2="24" stroke="#fff7ed" stroke-width="3.8" stroke-linecap="round"/>
+            <line x1="42" y1="32" x2="51" y2="32" stroke="#fde68a" stroke-width="3.4" stroke-linecap="round"/>
+            <!-- Cartoon Winged Boot -->
+            <path d="M26,17 L34,27 L39,34 C41,37 39,42 34,44 L17,46 C12,46 10,42 12,38 L18,35 L15,28 C14,25 18,22 22,24 L26,17 Z"
+              fill="#fff7ed" stroke="#1c1917" stroke-width="3.2" stroke-linejoin="round"/>
+            <path d="M13,43 L36,41" stroke="#d6c7b2" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        `;
+      case 'CHOP':
+        // Cartoon chef knife chopping green cucumber slices on wooden board with 3 golden sparks (exact match to Ref Image 3 top-right)
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <!-- 3 Golden Action Sparks -->
+            <polygon points="33,7 36,17 31,17" fill="#facc15"/>
+            <polygon points="42,9 41,19 37,17" fill="#facc15"/>
+            <polygon points="50,15 44,22 41,19" fill="#facc15"/>
+            <!-- Wooden Cutting Board -->
+            <polygon points="10,41 34,33 54,40 30,49" fill="#c27838" stroke="#1c1917" stroke-width="2.8" stroke-linejoin="round"/>
+            <polygon points="10,41 30,49 30,53 10,45" fill="#854d0e" stroke="#1c1917" stroke-width="2.4" stroke-linejoin="round"/>
+            <polygon points="30,49 54,40 54,44 30,53" fill="#9a5822" stroke="#1c1917" stroke-width="2.4" stroke-linejoin="round"/>
+            <!-- Sliced Green Cucumber / Veggie on Board -->
+            <ellipse cx="22" cy="38" rx="5.5" ry="4" fill="#22c55e" stroke="#1c1917" stroke-width="2.2"/>
+            <ellipse cx="24" cy="38" rx="3" ry="3.2" fill="#bbf7d0" stroke="#15803d" stroke-width="1.5"/>
+            <ellipse cx="31" cy="41" rx="3.5" ry="2.2" fill="#86efac" stroke="#1c1917" stroke-width="2"/>
+            <ellipse cx="38" cy="42" rx="3.5" ry="2.2" fill="#86efac" stroke="#1c1917" stroke-width="2"/>
+            <!-- Chef Knife Blade & Brown Handle -->
+            <path d="M16,16 L25,22 L22,26 L13,20 Z" fill="#78350f" stroke="#1c1917" stroke-width="2.5" stroke-linejoin="round"/>
+            <circle cx="18" cy="19" r="1.3" fill="#fde68a"/>
+            <path d="M25,22 L49,36 C44,40 34,37 22,26 Z" fill="#f1f5f9" stroke="#1c1917" stroke-width="2.6" stroke-linejoin="round"/>
+          </svg>
+        `;
+      case 'COOK':
+        // Cartoon Frying Pan with sizzling patty & golden steam
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <path d="M22,19 Q25,13 22,8 M32,18 Q35,12 32,7 M41,20 Q44,14 41,9" fill="none" stroke="#fde047" stroke-width="3" stroke-linecap="round"/>
+            <ellipse cx="29" cy="37" rx="17" ry="10" fill="#334155" stroke="#1c1917" stroke-width="3"/>
+            <ellipse cx="29" cy="35" rx="14" ry="7.5" fill="#1e293b"/>
+            <ellipse cx="29" cy="35" rx="9.5" ry="5.2" fill="#b45309" stroke="#1c1917" stroke-width="2.2"/>
+            <path d="M44,34 L56,28 L58,32 L45,38 Z" fill="#ea580c" stroke="#1c1917" stroke-width="2.6" stroke-linejoin="round"/>
+          </svg>
+        `;
+      case 'WASH':
+        // Cartoon Sparkling Plate & Blue Water Droplets
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <circle cx="29" cy="35" r="16" fill="#ffffff" stroke="#1c1917" stroke-width="3"/>
+            <circle cx="29" cy="35" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2"/>
+            <path d="M46,16 C46,16 52,24 52,28 C52,31.5 49.3,34 46,34 C42.7,34 40,31.5 40,28 C40,24 46,16 46,16 Z" fill="#38bdf8" stroke="#1c1917" stroke-width="2.4"/>
+            <polygon points="18,14 20,19 25,21 20,23 18,28 16,23 11,21 16,19" fill="#facc15"/>
+          </svg>
+        `;
+      case 'DELIVER':
+        // Cartoon Golden Service Bell / Cloche with Star
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <circle cx="32" cy="17" r="4" fill="#facc15" stroke="#1c1917" stroke-width="2.5"/>
+            <path d="M14,41 C14,26 50,26 50,41 Z" fill="#fbbf24" stroke="#1c1917" stroke-width="3" stroke-linejoin="round"/>
+            <rect x="10" y="41" width="44" height="6" rx="3" fill="#f59e0b" stroke="#1c1917" stroke-width="2.8"/>
+            <polygon points="32,25 34,30 39,30 35,33 36.5,38 32,35 27.5,38 29,33 25,30 30,30" fill="#fffbeb"/>
+          </svg>
+        `;
+      case 'SPRAY':
+        // Cartoon Fire Extinguisher + White Foam Cloud
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <rect x="16" y="24" width="16" height="26" rx="5" fill="#ef4444" stroke="#1c1917" stroke-width="2.8"/>
+            <rect x="20" y="17" width="8" height="7" fill="#94a3b8" stroke="#1c1917" stroke-width="2.4"/>
+            <path d="M28,20 L38,18" stroke="#1c1917" stroke-width="3.2" stroke-linecap="round"/>
+            <circle cx="45" cy="26" r="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+            <circle cx="51" cy="32" r="7" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+            <circle cx="43" cy="35" r="5.5" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+          </svg>
+        `;
+      case 'CRATE':
+        // Cartoon Wooden Ingredient Crate + Up Arrow
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <rect x="14" y="26" width="36" height="24" rx="4" fill="#d97706" stroke="#1c1917" stroke-width="3"/>
+            <line x1="14" y1="36" x2="50" y2="36" stroke="#78350f" stroke-width="2.6"/>
+            <polygon points="32,10 43,22 36,22 36,29 28,29 28,22 21,22" fill="#4ade80" stroke="#1c1917" stroke-width="2.5" stroke-linejoin="round"/>
+          </svg>
+        `;
+      case 'THROW':
+      default:
+        // Cartoon Flying Burger/Tomato with Motion Arc & Target
+        return `
+          <svg width="100%" height="100%" viewBox="0 0 64 64">
+            <path d="M12,44 Q24,16 46,22" fill="none" stroke="#fde047" stroke-width="3.4" stroke-dasharray="4 4" stroke-linecap="round"/>
+            <circle cx="44" cy="26" r="11" fill="#ef4444" stroke="#1c1917" stroke-width="2.8"/>
+            <polygon points="44,15 46,20 51,19 47,23 44,21 40,23 38,19 42,20" fill="#22c55e"/>
+            <circle cx="20" cy="42" r="5" fill="#fff7ed" opacity="0.85"/>
+          </svg>
+        `;
+    }
+  }
+
+  /**
    * Dynamically updates the Smart Contextual Action Button based on what equipment
    * and ingredient the player is facing/holding (Cắt, Nấu, Rửa, Giao món, Nhặt mặt, or Disabled).
    */
@@ -1209,34 +1347,47 @@ export class HUDOverlay3D {
     this.currentActionLabel = `${labelHtml}_${color}_${enabled}`;
     this.actionBtnEnabled = enabled;
 
-    // Parse icon + label from labelHtml (e.g. "🔪<br>CẮT" -> icon "🔪", text "Cắt")
+    // Parse icon + label from labelHtml (e.g. "🔪<br>CẮT" -> cartoon SVG + friendly label "Cắt")
     const parts = labelHtml.split(/<br\s*\/?>/i);
     const iconEl = this.actionBtnEl.querySelector('.btn-icon') as HTMLElement | null;
     const textEl = this.actionBtnEl.querySelector('.btn-label') as HTMLElement | null;
     if (iconEl && textEl) {
-      if (parts.length >= 2) {
-        iconEl.innerHTML = parts[0].trim();
-        textEl.innerHTML = this.formatFriendlyLabel(parts[1].trim());
+      const rawText = (parts.length >= 2 ? parts[1] : parts[0]).trim();
+      const friendly = this.formatFriendlyLabel(rawText);
+      textEl.innerHTML = friendly;
+
+      const upper = rawText.toUpperCase();
+      if (upper.includes('NẤU')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('COOK');
+      } else if (upper.includes('RỬA')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('WASH');
+      } else if (upper.includes('GIAO')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('DELIVER');
+      } else if (upper.includes('PHUN') || upper.includes('CHÁY')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('SPRAY');
+      } else if (upper.includes('NHẶT')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('HAND');
+      } else if (upper.includes('LẤY') || upper.includes('ĐẶT')) {
+        iconEl.innerHTML = this.getCartoonActionSVG('CRATE');
       } else {
-        iconEl.innerHTML = '🔪';
-        textEl.innerHTML = this.formatFriendlyLabel(parts[0].trim());
+        iconEl.innerHTML = this.getCartoonActionSVG('CHOP');
       }
     }
 
     this.actionBtnEl.dataset.baseColor = color;
-    this.actionBtnEl.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 78%)`;
+    this.actionBtnEl.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 68%, #182234 100%)`;
     if (enabled) {
       this.actionBtnEl.style.opacity = '1.0';
       this.actionBtnEl.style.filter = 'none';
       this.actionBtnEl.style.cursor = 'pointer';
-      this.actionBtnEl.style.borderColor = '#ffffff';
-      this.actionBtnEl.style.boxShadow = `0 0 16px ${color}88, 0 5px 14px rgba(0, 0, 0, 0.45), inset 0 2px 3px rgba(255, 255, 255, 0.45)`;
+      this.actionBtnEl.style.borderColor = '#fff7ed';
+      this.actionBtnEl.style.boxShadow = `0 0 18px ${color}99, 0 6px 14px rgba(0, 0, 0, 0.55), inset 0 0 0 3px #182234, inset 0 3px 6px rgba(255, 255, 255, 0.38)`;
     } else {
-      this.actionBtnEl.style.opacity = '0.45';
-      this.actionBtnEl.style.filter = 'grayscale(55%)';
+      this.actionBtnEl.style.opacity = '0.52';
+      this.actionBtnEl.style.filter = 'grayscale(38%)';
       this.actionBtnEl.style.cursor = 'default';
-      this.actionBtnEl.style.borderColor = 'rgba(255, 255, 255, 0.55)';
-      this.actionBtnEl.style.boxShadow = '0 3px 8px rgba(0, 0, 0, 0.3)';
+      this.actionBtnEl.style.borderColor = 'rgba(255, 247, 237, 0.72)';
+      this.actionBtnEl.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4), inset 0 0 0 3px #182234';
       this.inputs.isActionPressed = false;
     }
   }
@@ -1306,6 +1457,10 @@ export class HUDOverlay3D {
 
   public updateDashCooldown(remainingSeconds: number, totalCooldown: number) {
     if (!this.dashBtnEl) return;
+    const stateKey = remainingSeconds > 0 ? remainingSeconds.toFixed(1) : 'ready';
+    if (stateKey === this.lastDashCdState) return;
+    this.lastDashCdState = stateKey;
+
     const ringEl = this.dashBtnEl.querySelector('.dash-cooldown-ring') as HTMLElement | null;
     const cdTextEl = this.dashBtnEl.querySelector('.dash-cooldown-text') as HTMLElement | null;
     if (remainingSeconds > 0 && totalCooldown > 0) {
@@ -1332,7 +1487,7 @@ export class HUDOverlay3D {
   }
 
   private createTouchButton(
-    icon: string,
+    iconSvg: string,
     labelText: string,
     color: string,
     activeColor: string,
@@ -1350,13 +1505,13 @@ export class HUDOverlay3D {
       width: ${sizeCss};
       height: ${sizeCss};
       border-radius: 50%;
-      background: radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 78%);
-      border: 3px solid #ffffff;
-      color: #ffffff;
+      background: radial-gradient(circle at 32% 28%, ${this.lightenHex(color)} 0%, ${color} 68%, #182234 100%);
+      border: 4px solid #fff7ed;
+      color: #fff7ed;
       font-weight: 900;
       text-align: center;
       cursor: pointer;
-      box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45), inset 0 2px 3px rgba(255, 255, 255, 0.45);
+      box-shadow: 0 6px 14px rgba(0, 0, 0, 0.55), inset 0 0 0 3px #182234, inset 0 3px 6px rgba(255, 255, 255, 0.38);
       user-select: none;
       -webkit-user-select: none;
       touch-action: none;
@@ -1366,8 +1521,8 @@ export class HUDOverlay3D {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 1px;
-      padding: 2px;
+      gap: 0px;
+      padding: 4px;
       box-sizing: border-box;
       transition: transform 0.07s ease, opacity 0.12s ease, box-shadow 0.15s ease;
     `;
@@ -1392,10 +1547,10 @@ export class HUDOverlay3D {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 900;
       color: #fef08a;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.95);
       pointer-events: none;
       opacity: 0;
       z-index: 4;
@@ -1408,11 +1563,15 @@ export class HUDOverlay3D {
       position: relative;
       z-index: 2;
       pointer-events: none;
-      font-size: ${isPrimary ? 'clamp(18px, 4.2vmin, 22px)' : 'clamp(15px, 3.6vmin, 18px)'};
-      line-height: 1.05;
-      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
+      width: ${isPrimary ? 'clamp(38px, 8.8vmin, 46px)' : 'clamp(33px, 7.6vmin, 40px)'};
+      height: ${isPrimary ? 'clamp(38px, 8.8vmin, 46px)' : 'clamp(33px, 7.6vmin, 40px)'};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -1px;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
     `;
-    iconSpan.innerHTML = icon;
+    iconSpan.innerHTML = iconSvg;
     btn.appendChild(iconSpan);
 
     const labelSpan = document.createElement('span');
@@ -1421,12 +1580,14 @@ export class HUDOverlay3D {
       position: relative;
       z-index: 2;
       pointer-events: none;
-      font-size: ${isPrimary ? 'clamp(10px, 2.2vmin, 11.5px)' : 'clamp(9.5px, 2vmin, 10.5px)'};
-      font-weight: 800;
-      line-height: 1.05;
-      letter-spacing: 0.1px;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+      font-size: ${isPrimary ? 'clamp(9.5px, 2vmin, 11px)' : 'clamp(9px, 1.85vmin, 10px)'};
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: 0.15px;
+      color: #fff7ed;
+      text-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.85);
       white-space: nowrap;
+      margin-top: -1px;
     `;
     labelSpan.innerHTML = labelText;
     btn.appendChild(labelSpan);
@@ -1436,13 +1597,15 @@ export class HUDOverlay3D {
 
     const applyVisualPress = () => {
       btn.style.transform = 'scale(0.90)';
-      btn.style.background = activeColor;
+      btn.style.background = `radial-gradient(circle at 50% 50%, ${activeColor} 0%, #0f172a 100%)`;
+      btn.style.borderColor = '#fde047';
     };
 
     const applyVisualRelease = () => {
       btn.style.transform = 'scale(1)';
       const base = btn.dataset.baseColor || color;
-      btn.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(base)} 0%, ${base} 78%)`;
+      btn.style.background = `radial-gradient(circle at 32% 28%, ${this.lightenHex(base)} 0%, ${base} 68%, #182234 100%)`;
+      btn.style.borderColor = '#fff7ed';
     };
 
     // Dedicated Touch Listeners (Isolated per touch.identifier so holding Left Joystick never blocks Right Buttons!)
