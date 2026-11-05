@@ -29,6 +29,8 @@ export interface KitchenItem {
   id: string;
   type: IngredientType;
   plateContents?: IngredientType[];
+  cookTimer?: number;
+  burnTimer?: number;
   cookingTimer?: number;
   stoveState?: StoveState;
 }

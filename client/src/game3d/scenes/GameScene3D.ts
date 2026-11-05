@@ -338,12 +338,15 @@ export class GameScene3D {
       }
     });
 
-    // 3. Remote counter update
+    // 3. Remote counter update (Preserves active 3D mesh & timers if item type hasn't changed!)
     const handleCounterSync = (data: {
       id: string;
       item: KitchenItem | null;
+      surfaceItems?: KitchenItem[];
       cutProgress?: number;
       stoveState?: StoveState;
+      cookTimer?: number;
+      burnTimer?: number;
       cookingTimer?: number;
       isOnFire?: boolean;
       fireIntensity?: number;
@@ -351,21 +354,37 @@ export class GameScene3D {
       const counter = this.map.counters.get(data.id);
       if (!counter) return;
 
-      counter.itemHolder.clear();
+      const prevType = counter.currentItem?.type ?? null;
+      const nextType = data.item?.type ?? null;
+      const prevPlate = JSON.stringify(counter.currentItem?.plateContents ?? []);
+      const nextPlate = JSON.stringify(data.item?.plateContents ?? []);
+
       counter.currentItem = data.item;
       if (data.cutProgress !== undefined) counter.cutProgress = data.cutProgress;
       if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
+      if (data.cookTimer !== undefined) counter.cookTimer = data.cookTimer;
+      if (data.burnTimer !== undefined) counter.burnTimer = data.burnTimer;
       if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
       if (data.isOnFire !== undefined) counter.isOnFire = data.isOnFire;
       if (data.fireIntensity !== undefined) counter.fireIntensity = data.fireIntensity;
 
-      if (data.item) {
-        const mesh = Ingredient3DFactory.createMesh(data.item);
-        counter.itemHolder.add(mesh);
+      if (data.surfaceItems !== undefined) {
+        counter.surfaceItems = data.surfaceItems;
+        this.map.rebuildSurfaceMeshes(counter);
+      }
+
+      // Only rebuild the 3D mesh if the item type or plate contents actually changed!
+      if (prevType !== nextType || prevPlate !== nextPlate) {
+        counter.itemHolder.clear();
+        if (data.item) {
+          const mesh = Ingredient3DFactory.createMesh(data.item);
+          counter.itemHolder.add(mesh);
+        }
       }
     };
     room.onMessage('remote_counter_update', handleCounterSync);
     room.onMessage('counter_update', handleCounterSync);
+    room.onMessage('server_stove_sync', handleCounterSync);
 
     // Remote fire & extinguisher spray sync
     room.onMessage('remote_fire_update', (data: { id: string; isOnFire: boolean; fireIntensity: number }) => {
@@ -730,6 +749,25 @@ export class GameScene3D {
       return;
     }
 
+    // Ingredient Storage Bin contextual action:
+    // - If items are placed on top of the bin and hands are empty -> [Space] picks up from top surface!
+    // - If hands are empty and top is empty -> [Space] dispenses from bin!
+    // - If holding an item and top has room (< 4 items) -> [Space] places item onto flat top surface!
+    if (c.type.startsWith('crate_')) {
+      if (!this.heldItem && c.surfaceItems.length > 0) {
+        this.hud.updateContextualActionButton('✋<br>NHẶT MẶT BÀN', '#0ea5e9', true);
+        return;
+      }
+      if (!this.heldItem) {
+        this.hud.updateContextualActionButton('📦<br>LẤY NGUYÊN LIỆU', '#10b981', true);
+        return;
+      }
+      if (this.heldItem && c.surfaceItems.length < 4) {
+        this.hud.updateContextualActionButton('📥<br>ĐẶT LÊN MẶT', '#10b981', true);
+        return;
+      }
+    }
+
     this.hud.updateContextualActionButton('CẮT<br>NẤU', '#475569', false);
   }
 
@@ -927,76 +965,116 @@ export class GameScene3D {
         return;
       }
 
-      // 3B. Rebalanced Overcooked 2 Stove Cooking & Post-Cooked Burn Timeline
+      // 3B. STRICT 4-STAGE COOKING STATE MACHINE (RAW -> COOKING -> COOKED -> BURNED)
+      // Uses two completely independent timers:
+      // - c.cookTimer (0 -> cookDuration, e.g. 8.0s for Beef)
+      // - c.burnTimer (0 -> 13.0s AFTER cooked: 0-5s SAFE, 5-10s WARNING, 10-13s DANGER, >=13s BURNED)
       if (c.type === CounterType.STOVE && c.currentItem && this.isCookable(c.currentItem.type)) {
         const cookDuration = CookingConfig.getCookDuration(c.currentItem.type);
-        const safeEnd = cookDuration + CookingConfig.burnTimeline.safeDuration; // e.g. 8 + 5 = 13s
-        const warnEnd = safeEnd + CookingConfig.burnTimeline.warningDuration;   // e.g. 13 + 5 = 18s
-        const dangerEnd = warnEnd + CookingConfig.burnTimeline.dangerDuration;  // e.g. 18 + 3 = 21s
-
-        c.cookingTimer += delta;
-        c.currentItem.cookingTimer = c.cookingTimer;
+        const safeDur = CookingConfig.burnTimeline.safeDuration;            // 5.0s
+        const warnDur = CookingConfig.burnTimeline.warningDuration;         // 5.0s
+        const totalBurnDur = CookingConfig.burnTimeline.totalPostCookedTime; // 13.0s
 
         this.sound.playSizzle();
-        if (Math.random() < 0.25) {
+        if (Math.random() < 0.22) {
           this.particles.emitSteam(c.x, 0.96, c.z);
         }
 
+        // STAGE 1: COOKING (Raw ingredient on stove -> counts cookTimer from 0 to cookDuration)
+        // Rule 1 & Rule 4: Raw/Cooking meat can ONLY transition to COOKED when cookTimer >= cookDuration, NEVER to BURNED!
         if (this.isRawCookable(c.currentItem.type)) {
           c.stoveState = StoveState.COOKING;
+          c.burnTimer = 0; // Strictly 0 while cooking
+          c.cookTimer = (c.cookTimer || 0) + delta;
+          c.cookingTimer = c.cookTimer;
+
+          c.currentItem.cookTimer = c.cookTimer;
+          c.currentItem.burnTimer = 0;
+          c.currentItem.cookingTimer = c.cookTimer;
           c.currentItem.stoveState = StoveState.COOKING;
 
-          // Completed raw -> cooked!
-          if (c.cookingTimer >= cookDuration) {
+          if (c.cookTimer >= cookDuration) {
+            // Transition COOKING -> COOKED!
+            // Rule 3: Explicitly initialize burnTimer = 0 from the moment it becomes COOKED!
             c.currentItem.type = CookingConfig.getCookedCounterpart(c.currentItem.type);
             c.stoveState = StoveState.COOKED;
-            c.currentItem.stoveState = StoveState.COOKED;
+            c.cookTimer = cookDuration;
+            c.burnTimer = 0;
+            c.cookingTimer = cookDuration;
             c.beepTimer = 0;
+
+            c.currentItem.cookTimer = cookDuration;
+            c.currentItem.burnTimer = 0;
+            c.currentItem.cookingTimer = cookDuration;
+            c.currentItem.stoveState = StoveState.COOKED;
+
             c.itemHolder.clear();
             c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
             this.map.triggerCounterBounce(c.id);
             this.sound.playCookedReady();
-            this.broadcastCounterUpdate(c);
+            this.hud.showFloatingPopup('✅ THỊT ĐÃ CHÍN! LẤY RA TRƯỚC KHI CHÁY!', '#10b981');
+            if (!this.config.isMultiplayer || this.network.isHost) {
+              this.broadcastCounterUpdate(c);
+            }
+            // Exit this frame's tick so burnTimer starts cleanly at 0 on the next frame!
+            return;
           }
-        } else if (this.isAlreadyCooked(c.currentItem.type)) {
-          if (c.cookingTimer < safeEnd) {
-            // 0–5s after cooked: COOKED (Safe)
+        }
+        // STAGE 2: POST-COOKED BURN TIMELINE (Only runs when item is ALREADY COOKED!)
+        // Rule 2: Only transitions COOKED -> BURNED after full 13.0s burnTimer completes!
+        else if (this.isAlreadyCooked(c.currentItem.type)) {
+          c.cookTimer = cookDuration;
+          c.burnTimer = (c.burnTimer || 0) + delta;
+          c.cookingTimer = cookDuration + c.burnTimer;
+
+          c.currentItem.cookTimer = cookDuration;
+          c.currentItem.burnTimer = c.burnTimer;
+          c.currentItem.cookingTimer = c.cookingTimer;
+
+          if (c.burnTimer < safeDur) {
+            // 0–5s after cooked: COOKED (Safe window)
             c.stoveState = StoveState.COOKED;
             c.currentItem.stoveState = StoveState.COOKED;
-          } else if (c.cookingTimer < warnEnd) {
-            // 5–10s after cooked: WARNING (⚠️ + periodic beep)
+          } else if (c.burnTimer < safeDur + warnDur) {
+            // 5–10s after cooked: WARNING (⚠️ + light smoke + periodic beep)
             const prevState = c.stoveState;
             c.stoveState = StoveState.WARNING;
             c.currentItem.stoveState = StoveState.WARNING;
-            if (prevState !== StoveState.WARNING) {
+            if (prevState !== StoveState.WARNING && (!this.config.isMultiplayer || this.network.isHost)) {
               this.broadcastCounterUpdate(c);
+            }
+            if (Math.random() < 0.15) {
+              this.particles.emitSteam(c.x, 0.98, c.z);
             }
             c.beepTimer = (c.beepTimer || 0) + delta;
             if (c.beepTimer >= 0.85) {
               c.beepTimer = 0;
               this.sound.playBeep(false);
             }
-          } else if (c.cookingTimer < dangerEnd) {
-            // 10–13s after cooked: DANGER (🔥 + rapid urgent beep + dark smoke)
+          } else if (c.burnTimer < totalBurnDur) {
+            // 10–13s after cooked: DANGER (🔥 + heavier dark smoke + rapid urgent beep)
             const prevState = c.stoveState;
             c.stoveState = StoveState.DANGER;
             c.currentItem.stoveState = StoveState.DANGER;
-            if (prevState !== StoveState.DANGER) {
+            if (prevState !== StoveState.DANGER && (!this.config.isMultiplayer || this.network.isHost)) {
               this.broadcastCounterUpdate(c);
+            }
+            if (Math.random() < 0.35) {
+              this.particles.emitBurntSmoke(c.x, 0.98, c.z);
             }
             c.beepTimer = (c.beepTimer || 0) + delta;
             if (c.beepTimer >= 0.30) {
               c.beepTimer = 0;
               this.sound.playBeep(true);
             }
-            if (Math.random() < 0.35) {
-              this.particles.emitBurntSmoke(c.x, 0.98, c.z);
-            }
           } else {
-            // >= 13s after cooked: BURNT & Stove Ignites!
+            // >= 13.0s after cooked: Transition COOKED -> BURNED & Ignite Stove!
             c.currentItem.type = IngredientType.BURNT_PATTY;
             c.stoveState = StoveState.BURNT;
+            c.burnTimer = totalBurnDur;
+            c.currentItem.burnTimer = totalBurnDur;
             c.currentItem.stoveState = StoveState.BURNT;
+
             c.isOnFire = true;
             c.fireIntensity = 1.0;
             c.fireSpreadTimer = 0;
@@ -1008,7 +1086,9 @@ export class GameScene3D {
 
             c.itemHolder.clear();
             c.itemHolder.add(Ingredient3DFactory.createMesh(c.currentItem));
-            this.broadcastCounterUpdate(c);
+            if (!this.config.isMultiplayer || this.network.isHost) {
+              this.broadcastCounterUpdate(c);
+            }
           }
         }
       }
@@ -1094,20 +1174,9 @@ export class GameScene3D {
 
     // 2. SMART COOKING ON STOVE
     if (counter.type === CounterType.STOVE) {
-      // If holding raw/cooked meat and stove is empty -> auto-place into frying pan & resume timer!
+      // If holding raw/cooked meat and stove is empty -> auto-place into frying pan & restore exact separate timers!
       if (!counter.currentItem && this.heldItem && this.isCookable(this.heldItem.type)) {
-        counter.currentItem = this.heldItem;
-        if (this.isRawCookable(this.heldItem.type)) {
-          counter.stoveState = StoveState.COOKING;
-          counter.cookingTimer = this.heldItem.cookingTimer ?? 0;
-        } else {
-          counter.stoveState = this.heldItem.stoveState ?? StoveState.COOKED;
-          counter.cookingTimer =
-            this.heldItem.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
-        }
-        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
-        counter.itemHolder.clear();
-        counter.itemHolder.add(mesh);
+        this.placeItemOnStove(counter, this.heldItem);
         this.setHeldItem(null);
         this.map.triggerCounterBounce(counter.id);
         this.sound.playDrop();
@@ -1123,6 +1192,23 @@ export class GameScene3D {
         this.particles.emitSteam(counter.x, 0.98, counter.z);
         this.syncPlayerAnim('COOK', counter.id);
       }
+      return;
+    }
+
+    // 2.5. INGREDIENT STORAGE BIN SMART ACTION ([Space] picks up item from top surface of bin, or places/dispenses)
+    if (counter.type.startsWith('crate_')) {
+      if (!this.heldItem && counter.surfaceItems.length > 0) {
+        const picked = counter.surfaceItems.pop()!;
+        this.map.rebuildSurfaceMeshes(counter);
+        this.setHeldItem(picked);
+        this.localPlayer.playOneShot('PICKUP');
+        this.syncPlayerAnim('PICKUP');
+        this.map.triggerCounterBounce(counter.id);
+        this.sound.playPickup();
+        this.broadcastCounterUpdate(counter);
+        return;
+      }
+      this.handlePickupDrop();
       return;
     }
 
@@ -1199,9 +1285,30 @@ export class GameScene3D {
     const counter = this.currentFacingCounter;
     this.faceCounter(counter);
 
-    // 1. CRATES (Pick up raw items if hands are empty)
+    // 1. INGREDIENT STORAGE BINS (Supports BOTH dispensing from bin interior AND placing/stacking up to 4 items on flat top surface!)
     if (counter.type.startsWith('crate_')) {
+      if (counter.isOnFire) {
+        this.sound.playBeep(true);
+        this.hud.showFloatingPopup('🔥 THÙNG ĐANG CHÁY! DÙNG BÌNH CỨU HỎA (🧯) ĐỂ DẬP LỬA!', '#ef4444');
+        return;
+      }
+
+      // CASE A: Player's hands are EMPTY -> Dispense from bin (if not occluded by 4 surface items), or pick up from surface if full!
       if (!this.heldItem) {
+        if (counter.surfaceItems.length >= 4) {
+          // Top of bin is completely covered by 4 items -> pick up top surface item first
+          const picked = counter.surfaceItems.pop()!;
+          this.map.rebuildSurfaceMeshes(counter);
+          this.setHeldItem(picked);
+          this.localPlayer.playOneShot('PICKUP');
+          this.syncPlayerAnim('PICKUP');
+          this.map.triggerCounterBounce(counter.id);
+          this.sound.playPickup();
+          this.broadcastCounterUpdate(counter);
+          return;
+        }
+
+        // Dispense fresh raw ingredient from inside the storage bin drawer!
         let spawnType: IngredientType = IngredientType.BREAD;
         if (counter.type === CounterType.CRATE_BREAD) spawnType = IngredientType.BREAD;
         else if (counter.type === CounterType.CRATE_MEAT) spawnType = IngredientType.RAW_MEAT;
@@ -1213,12 +1320,54 @@ export class GameScene3D {
         this.setHeldItem({
           id: `item_${Date.now()}_${Math.random()}`,
           type: spawnType,
-          plateContents: spawnType === IngredientType.PLATE ? [] : undefined
+          plateContents: spawnType === IngredientType.PLATE ? [] : undefined,
+          cookTimer: 0,
+          burnTimer: 0,
+          cookingTimer: 0,
+          stoveState: StoveState.IDLE
         });
         this.localPlayer.playOneShot('PICKUP');
         this.syncPlayerAnim('PICKUP');
         this.map.triggerCounterBounce(counter.id);
         this.sound.playPickup();
+        return;
+      }
+
+      // CASE B: Player IS holding an item -> Place onto the flat countertop surface of the Storage Bin (or combine with a Plate on top)!
+      // Check if held item can assemble with a Plate sitting on the bin's top surface
+      if (
+        this.heldItem.type !== IngredientType.PLATE &&
+        this.heldItem.type !== IngredientType.FIRE_EXTINGUISHER &&
+        this.heldItem.type !== IngredientType.BURNT_PATTY
+      ) {
+        const plateOnBin = counter.surfaceItems.find((it) => it.type === IngredientType.PLATE);
+        if (plateOnBin) {
+          if (!plateOnBin.plateContents) plateOnBin.plateContents = [];
+          plateOnBin.plateContents.push(this.heldItem.type);
+          this.map.rebuildSurfaceMeshes(counter);
+          this.setHeldItem(null);
+          this.localPlayer.playOneShot('DROP');
+          this.syncPlayerAnim('DROP');
+          this.map.triggerCounterBounce(counter.id);
+          this.sound.playDrop();
+          this.broadcastCounterUpdate(counter);
+          return;
+        }
+      }
+
+      // Place held item into the next available slot on the bin's flat top surface (up to 4 items without overwriting!)
+      if (counter.surfaceItems.length < 4) {
+        counter.surfaceItems.push(this.heldItem);
+        this.map.rebuildSurfaceMeshes(counter);
+        this.setHeldItem(null);
+        this.localPlayer.playOneShot('DROP');
+        this.syncPlayerAnim('DROP');
+        this.map.triggerCounterBounce(counter.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(counter);
+      } else {
+        this.sound.playBeep(false);
+        this.hud.showFloatingPopup('📦 Mặt trên của thùng đã đầy (tối đa 4 vật phẩm)!', '#f59e0b');
       }
       return;
     }
@@ -1280,14 +1429,20 @@ export class GameScene3D {
 
     // 4. CLEAR COUNTER / CUTTING BOARD / STOVE INTERACTION
     if (!this.heldItem && counter.currentItem) {
-      // Phase 4: Picking up from a stove PAUSES and PRESERVES cookingTimer & stoveState on the item!
+      // Rule 6: Picking up from a stove PAUSES and PRESERVES both cookTimer & burnTimer on the item,
+      // and completely clears the stove's own timers so they never affect the next item!
       if (counter.type === CounterType.STOVE) {
+        counter.currentItem.cookTimer = counter.cookTimer;
+        counter.currentItem.burnTimer = counter.burnTimer;
         counter.currentItem.cookingTimer = counter.cookingTimer;
         counter.currentItem.stoveState = counter.stoveState;
       }
       this.setHeldItem(counter.currentItem);
       counter.currentItem = null;
+      counter.cookTimer = 0;
+      counter.burnTimer = 0;
       counter.cookingTimer = 0;
+      counter.beepTimer = 0;
       counter.cutProgress = 0;
       counter.isActivelyChopping = false;
       counter.stoveState = StoveState.IDLE;
@@ -1299,25 +1454,20 @@ export class GameScene3D {
       this.broadcastCounterUpdate(counter);
     } else if (this.heldItem && !counter.currentItem) {
       // Drop onto empty counter
-      // Check stove restrictions (only cookable items allowed on stove)
+      // Check stove restrictions (only raw or already-cooked cookable items allowed on stove; burnt items cannot be cooked again)
       if (counter.type === CounterType.STOVE && !this.isCookable(this.heldItem.type)) {
         return;
       }
 
-      counter.currentItem = this.heldItem;
       if (counter.type === CounterType.STOVE) {
-        // Phase 4: Resume cooking / burn timer from where it was paused!
-        if (this.isRawCookable(this.heldItem.type)) {
-          counter.stoveState = StoveState.COOKING;
-          counter.cookingTimer = this.heldItem.cookingTimer ?? 0;
-        } else if (this.isAlreadyCooked(this.heldItem.type)) {
-          counter.stoveState = this.heldItem.stoveState ?? StoveState.COOKED;
-          counter.cookingTimer =
-            this.heldItem.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
-        }
+        this.placeItemOnStove(counter, this.heldItem);
+      } else {
+        counter.currentItem = this.heldItem;
+        const mesh = Ingredient3DFactory.createMesh(this.heldItem);
+        counter.itemHolder.clear();
+        counter.itemHolder.add(mesh);
       }
-      const mesh = Ingredient3DFactory.createMesh(this.heldItem);
-      counter.itemHolder.add(mesh);
+
       this.setHeldItem(null);
       this.localPlayer.playOneShot('DROP');
       this.syncPlayerAnim('DROP');
@@ -1355,7 +1505,10 @@ export class GameScene3D {
         this.heldItem.plateContents.push(counter.currentItem.type);
 
         counter.currentItem = null;
+        counter.cookTimer = 0;
+        counter.burnTimer = 0;
         counter.cookingTimer = 0;
+        counter.beepTimer = 0;
         counter.stoveState = StoveState.IDLE;
         counter.itemHolder.clear();
         this.updateHeldMesh();
@@ -1368,6 +1521,52 @@ export class GameScene3D {
     }
   }
 
+  /**
+   * Rule 5 & Rule 7: Safely places a raw or cooked item onto a Stove, initializing or resuming
+   * its separate cookTimer and burnTimer without ever jumping directly to BURNED or resetting to RAW!
+   */
+  private placeItemOnStove(counter: Counter3DData, item: KitchenItem) {
+    counter.currentItem = item;
+    counter.beepTimer = 0;
+    const cookDuration = CookingConfig.getCookDuration(item.type);
+    const safeDur = CookingConfig.burnTimeline.safeDuration;
+    const warnDur = CookingConfig.burnTimeline.warningDuration;
+    const totalBurnDur = CookingConfig.burnTimeline.totalPostCookedTime;
+
+    if (this.isRawCookable(item.type)) {
+      counter.cookTimer = Math.max(0, Math.min(cookDuration - 0.05, item.cookTimer ?? 0));
+      counter.burnTimer = 0;
+      counter.cookingTimer = counter.cookTimer;
+      counter.stoveState = StoveState.COOKING;
+
+      item.cookTimer = counter.cookTimer;
+      item.burnTimer = 0;
+      item.cookingTimer = counter.cookTimer;
+      item.stoveState = StoveState.COOKING;
+    } else if (this.isAlreadyCooked(item.type)) {
+      // Resume burnTimer from where it was paused (clamped so placing cooked meat on a stove NEVER instantly burns it!)
+      counter.cookTimer = cookDuration;
+      counter.burnTimer = Math.max(0, Math.min(totalBurnDur - 0.5, item.burnTimer ?? 0));
+      counter.cookingTimer = cookDuration + counter.burnTimer;
+
+      if (counter.burnTimer < safeDur) {
+        counter.stoveState = StoveState.COOKED;
+      } else if (counter.burnTimer < safeDur + warnDur) {
+        counter.stoveState = StoveState.WARNING;
+      } else {
+        counter.stoveState = StoveState.DANGER;
+      }
+
+      item.cookTimer = counter.cookTimer;
+      item.burnTimer = counter.burnTimer;
+      item.cookingTimer = counter.cookingTimer;
+      item.stoveState = counter.stoveState;
+    }
+
+    counter.itemHolder.clear();
+    counter.itemHolder.add(Ingredient3DFactory.createMesh(item));
+  }
+
   private landThrownItem(item: KitchenItem, x: number, z: number) {
     let closest: Counter3DData | null = null;
     let minDist = 0.85;
@@ -1376,6 +1575,18 @@ export class GameScene3D {
       if (d < minDist) {
         minDist = d;
         closest = c;
+      }
+    }
+
+    if (closest && !closest.isOnFire && closest.type.startsWith('crate_')) {
+      // Allow thrown items to land cleanly on the flat top surface of an Ingredient Storage Bin!
+      if (closest.surfaceItems.length < 4) {
+        closest.surfaceItems.push(item);
+        this.map.rebuildSurfaceMeshes(closest);
+        this.map.triggerCounterBounce(closest.id);
+        this.sound.playDrop();
+        this.broadcastCounterUpdate(closest);
+        return;
       }
     }
 
@@ -1390,19 +1601,13 @@ export class GameScene3D {
         if (closest.type === CounterType.STOVE && !this.isCookable(item.type)) {
           return;
         }
-        closest.currentItem = item;
         if (closest.type === CounterType.STOVE) {
-          if (this.isRawCookable(item.type)) {
-            closest.stoveState = StoveState.COOKING;
-            closest.cookingTimer = item.cookingTimer ?? 0;
-          } else if (this.isAlreadyCooked(item.type)) {
-            closest.stoveState = item.stoveState ?? StoveState.COOKED;
-            closest.cookingTimer =
-              item.cookingTimer ?? CookingConfig.getCookDuration(IngredientType.RAW_MEAT);
-          }
+          this.placeItemOnStove(closest, item);
+        } else {
+          closest.currentItem = item;
+          closest.itemHolder.clear();
+          closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
         }
-        closest.itemHolder.clear();
-        closest.itemHolder.add(Ingredient3DFactory.createMesh(item));
         this.map.triggerCounterBounce(closest.id);
         this.sound.playDrop();
         this.broadcastCounterUpdate(closest);
@@ -1475,8 +1680,11 @@ export class GameScene3D {
       this.network.room.send('counter_update', {
         id: counter.id,
         item: counter.currentItem,
+        surfaceItems: counter.surfaceItems,
         cutProgress: counter.cutProgress,
         stoveState: counter.stoveState,
+        cookTimer: counter.cookTimer,
+        burnTimer: counter.burnTimer,
         cookingTimer: counter.cookingTimer,
         isOnFire: counter.isOnFire,
         fireIntensity: counter.fireIntensity

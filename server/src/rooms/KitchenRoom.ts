@@ -164,6 +164,7 @@ export class KitchenRoom extends Room<KitchenRoomState> {
         if (data.stoveState !== undefined) counter.stoveState = data.stoveState;
         if (data.cookingTimer !== undefined) counter.cookingTimer = data.cookingTimer;
       }
+      // Broadcast authoritative counter update (including cookTimer, burnTimer, stoveState, surfaceItems) to all other clients
       this.broadcast('remote_counter_update', data, { except: client });
     });
 

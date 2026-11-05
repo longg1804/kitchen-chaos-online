@@ -9,9 +9,22 @@ export class Ingredient3DFactory {
 
   private static rawMeatMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35, metalness: 0.05 });
   private static fatMarblingMat = new THREE.MeshStandardMaterial({ color: 0xfecaca, roughness: 0.5 });
-  private static cookedMeatMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.5, metalness: 0.1 });
-  private static grillMarkMat = new THREE.MeshStandardMaterial({ color: 0x1c0c05, roughness: 0.7 });
-  private static burntMeatMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85, metalness: 0.1 });
+  // Appetizing warm golden-brown seared steak/patty (clearly distinct from charcoal black burnt meat!)
+  private static cookedMeatMat = new THREE.MeshStandardMaterial({
+    color: 0xc26a1b,
+    emissive: 0x451a03,
+    emissiveIntensity: 0.18,
+    roughness: 0.38,
+    metalness: 0.08
+  });
+  private static cookedEdgeMat = new THREE.MeshStandardMaterial({
+    color: 0xd97706,
+    roughness: 0.35,
+    metalness: 0.05
+  });
+  private static grillMarkMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.55 });
+  private static burntMeatMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9, metalness: 0.05 });
+  private static burntAshMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.95 });
 
   private static lettuceHeadMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.4 });
   private static lettuceLeafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.35 });
@@ -288,16 +301,21 @@ export class Ingredient3DFactory {
   }
 
   // 3. BEEF STEAK / PATTY (Bottom at y = 0)
+  // Distinct models & materials for RAW (ruby red), COOKING (gradual color transition), COOKED (appetizing golden-brown with herb butter), and BURNT (charred black ash)
   private static buildMeat(group: THREE.Group, state: 'raw' | 'cooked' | 'burnt') {
     if (state === 'raw') {
-      // Distinct Ribeye Steak silhouette (main lobe + secondary lobe + white fat rim + T-bone)
+      // Distinct Ribeye Steak silhouette (main lobe + white fat rim + T-bone)
+      // Uses cloned materials tagged with userData so COOKING state can smoothly transition color from red -> golden-brown!
       const steakGroup = new THREE.Group();
+      const dynamicRawMat = this.rawMeatMat.clone();
+      const dynamicFatMat = this.fatMarblingMat.clone();
 
       // Outer white fat cap rim
       const fatCap = new THREE.Mesh(
         new THREE.CylinderGeometry(0.265, 0.265, 0.072, 20),
-        this.fatMarblingMat
+        dynamicFatMat
       );
+      fatCap.userData.isCookingFat = true;
       fatCap.scale.set(1.12, 1, 0.88);
       fatCap.position.y = 0.036;
       fatCap.castShadow = true;
@@ -306,8 +324,9 @@ export class Ingredient3DFactory {
       // Rich crimson raw beef interior
       const steak = new THREE.Mesh(
         new THREE.CylinderGeometry(0.24, 0.24, 0.078, 20),
-        this.rawMeatMat
+        dynamicRawMat
       );
+      steak.userData.isCookingMeat = true;
       steak.scale.set(1.1, 1, 0.85);
       steak.position.set(0.01, 0.039, 0);
       steak.castShadow = true;
@@ -324,44 +343,79 @@ export class Ingredient3DFactory {
       for (let f = -1; f <= 1; f++) {
         const fat = new THREE.Mesh(
           new THREE.BoxGeometry(0.26, 0.008, 0.028),
-          this.fatMarblingMat
+          dynamicFatMat
         );
+        fat.userData.isCookingFat = true;
         fat.rotation.y = 0.35 + f * 0.25;
         fat.position.set(0.03, 0.079, f * 0.065);
         steakGroup.add(fat);
       }
 
       group.add(steakGroup);
-    } else {
-      // Cooked or Burnt Burger Patty
-      const mat = state === 'cooked' ? this.cookedMeatMat : this.burntMeatMat;
-      const patty = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.26, 0.08, 22), mat);
-      patty.position.y = 0.04;
+    } else if (state === 'cooked') {
+      // Appetizing Golden-Brown Seared Steak / Burger Patty (Warm amber-brown crust + golden rim + herb butter pat)
+      const outerCrust = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.265, 0.27, 0.082, 24),
+        this.cookedEdgeMat
+      );
+      outerCrust.scale.set(1.06, 1, 0.94);
+      outerCrust.position.y = 0.041;
+      outerCrust.castShadow = true;
+      group.add(outerCrust);
+
+      const patty = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.245, 0.25, 0.088, 24),
+        this.cookedMeatMat
+      );
+      patty.scale.set(1.06, 1, 0.94);
+      patty.position.y = 0.044;
       patty.castShadow = true;
       group.add(patty);
 
-      if (state === 'cooked') {
-        // Prominent raised char-grill sear marks across the top
-        for (let g = -1.5; g <= 1.5; g += 1) {
-          const mark = new THREE.Mesh(
-            new THREE.BoxGeometry(0.36, 0.012, 0.026),
-            this.grillMarkMat
-          );
-          mark.rotation.y = Math.PI / 4;
-          mark.position.set(0, 0.082, g * 0.065);
-          group.add(mark);
-        }
-      } else {
-        // Burnt carbonized chunks on top
-        for (let b = 0; b < 5; b++) {
-          const ash = new THREE.Mesh(
-            new THREE.DodecahedronGeometry(0.045, 0),
-            this.grillMarkMat
-          );
-          const ang = (b / 5) * Math.PI * 2;
-          ash.position.set(Math.cos(ang) * 0.12, 0.08, Math.sin(ang) * 0.12);
-          group.add(ash);
-        }
+      // Warm caramel-brown cross-hatch grill sear marks across top
+      for (let g = -1; g <= 1; g += 1) {
+        const mark = new THREE.Mesh(
+          new THREE.BoxGeometry(0.36, 0.01, 0.024),
+          this.grillMarkMat
+        );
+        mark.rotation.y = Math.PI / 4;
+        mark.position.set(0, 0.089, g * 0.075);
+        group.add(mark);
+      }
+
+      // Melted Golden Maitre d'Hotel Herb Butter Pat in center for instant "COOKED & DELICIOUS" visual clarity!
+      const butterPat = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.075, 0.085, 0.018, 14),
+        this.cheeseMat
+      );
+      butterPat.position.set(0.02, 0.095, 0.01);
+      group.add(butterPat);
+
+      const herbLeaf = new THREE.Mesh(
+        new THREE.BoxGeometry(0.045, 0.008, 0.045),
+        this.lettuceLeafMat
+      );
+      herbLeaf.rotation.y = 0.4;
+      herbLeaf.position.set(0.02, 0.105, 0.01);
+      group.add(herbLeaf);
+    } else {
+      // BURNT: Shrunken, jagged charcoal-black puck with dark ash chunks
+      const burntPuck = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.21, 0.23, 0.065, 14),
+        this.burntMeatMat
+      );
+      burntPuck.position.y = 0.033;
+      burntPuck.castShadow = true;
+      group.add(burntPuck);
+
+      for (let b = 0; b < 6; b++) {
+        const ash = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.048, 0),
+          b % 2 === 0 ? this.burntAshMat : this.burntMeatMat
+        );
+        const ang = (b / 6) * Math.PI * 2;
+        ash.position.set(Math.cos(ang) * 0.11, 0.07, Math.sin(ang) * 0.11);
+        group.add(ash);
       }
     }
   }

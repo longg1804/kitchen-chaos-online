@@ -13,6 +13,8 @@ export interface Counter3DData {
   z: number;
   group: THREE.Group;
   itemHolder: THREE.Group;
+  surfaceSlotGroups: THREE.Group[];
+  surfaceItems: KitchenItem[];
   crateDisplayGroup?: THREE.Group;
   boardKnifeGroup?: THREE.Group;
   heatRingMat?: THREE.MeshStandardMaterial;
@@ -30,6 +32,8 @@ export interface Counter3DData {
   currentItem?: KitchenItem | null;
   cutProgress: number;
   stoveState: StoveState;
+  cookTimer: number;
+  burnTimer: number;
   cookingTimer: number;
 }
 
@@ -286,8 +290,24 @@ export class KitchenMap3D {
     itemHolder.position.set(0, slotY, slotZ);
     group.add(itemHolder);
 
+    // 4 Multi-Item Placement Surface Slots on the Flat Countertop (y = 0.845)
+    // Allows placing up to 4 items on top of Ingredient Storage Bins without overlapping or sinking!
+    const slotOffsets = [
+      { x: -0.22, z: -0.21 },
+      { x: 0.22, z: -0.21 },
+      { x: -0.22, z: 0.21 },
+      { x: 0.22, z: 0.21 }
+    ];
+    const surfaceSlotGroups: THREE.Group[] = [];
+    for (const off of slotOffsets) {
+      const sg = new THREE.Group();
+      sg.position.set(off.x, 0.845, off.z);
+      group.add(sg);
+      surfaceSlotGroups.push(sg);
+    }
+
     // Equipment on top based on Type
-    const extraRefs = this.decorateCounter(group, type, id);
+    const extraRefs = this.decorateCounter(group, type, id, x, z);
 
     // 3D Cartoon Fire Group (Hidden unless counter catches fire or fire spreads to it)
     const fireGroup = this.createFireMesh3D();
@@ -317,6 +337,8 @@ export class KitchenMap3D {
       z,
       group,
       itemHolder,
+      surfaceSlotGroups,
+      surfaceItems: [],
       crateDisplayGroup: extraRefs.crateDisplayGroup,
       boardKnifeGroup: extraRefs.boardKnifeGroup,
       heatRingMat: extraRefs.heatRingMat,
@@ -333,6 +355,8 @@ export class KitchenMap3D {
       beepTimer: 0,
       cutProgress: 0,
       stoveState: StoveState.IDLE,
+      cookTimer: 0,
+      burnTimer: 0,
       cookingTimer: 0
     };
 
@@ -354,6 +378,22 @@ export class KitchenMap3D {
     const c = this.counters.get(counterId);
     if (c) {
       c.bounceTimer = 0.22;
+    }
+  }
+
+  /**
+   * Rebuilds the 3D meshes for all items placed on top of a Storage Bin's flat countertop surface.
+   * Each item sits cleanly at y = 0.845 in its own slot without sinking, overlapping, or overwriting!
+   */
+  public rebuildSurfaceMeshes(c: Counter3DData) {
+    c.surfaceSlotGroups.forEach((sg) => sg.clear());
+    for (let i = 0; i < c.surfaceItems.length && i < c.surfaceSlotGroups.length; i++) {
+      const item = c.surfaceItems[i];
+      if (!item) continue;
+      const mesh = Ingredient3DFactory.createMesh(item);
+      // Slight scale adjustment so up to 4 items fit comfortably on the 1.0x1.0 flat top
+      mesh.scale.setScalar(c.surfaceItems.length > 1 ? 0.82 : 0.94);
+      c.surfaceSlotGroups[i].add(mesh);
     }
   }
 
@@ -444,19 +484,37 @@ export class KitchenMap3D {
           if (c.currentItem && c.stoveState !== StoveState.IDLE && c.stoveState !== StoveState.BURNT) {
             c.progressGroup.visible = true;
             const cookDuration = CookingConfig.getCookDuration(c.currentItem.type);
-            const safeEnd = cookDuration + CookingConfig.burnTimeline.safeDuration;
-            const warnEnd = safeEnd + CookingConfig.burnTimeline.warningDuration;
-            const dangerEnd = warnEnd + CookingConfig.burnTimeline.dangerDuration;
+            const safeDur = CookingConfig.burnTimeline.safeDuration;       // 5.0s
+            const warnDur = CookingConfig.burnTimeline.warningDuration;    // 5.0s
+            const dangerDur = CookingConfig.burnTimeline.dangerDuration;   // 3.0s
+            const totalBurnDur = CookingConfig.burnTimeline.totalPostCookedTime; // 13.0s
 
             let ratio = 0;
             if (c.stoveState === StoveState.COOKING) {
-              ratio = Math.min(1, c.cookingTimer / cookDuration);
+              ratio = Math.min(1, c.cookTimer / cookDuration);
               c.progressFillMat.color.setHex(0x22c55e); // Green cooking bar (0 -> 100%)
               if (c.statusSprite) c.statusSprite.visible = false;
+
+              // Gradual visual color transition on RAW_MEAT while COOKING (Ruby Red -> Seared Golden-Brown!)
+              const rawColor = new THREE.Color(0xef4444);
+              const cookedColor = new THREE.Color(0xc26a1b);
+              const rawFatColor = new THREE.Color(0xfecaca);
+              const cookedFatColor = new THREE.Color(0xfde68a);
+              c.itemHolder.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                  if (child.userData.isCookingMeat && child.material instanceof THREE.MeshStandardMaterial) {
+                    child.material.color.lerpColors(rawColor, cookedColor, ratio * 0.85);
+                  } else if (child.userData.isCookingFat && child.material instanceof THREE.MeshStandardMaterial) {
+                    child.material.color.lerpColors(rawFatColor, cookedFatColor, ratio * 0.85);
+                  }
+                }
+              });
+              // Gentle sizzle vibration while cooking
+              const sizzle = Math.sin(now * 28) * 0.025;
+              c.itemHolder.scale.set(1 + sizzle, 1 - sizzle, 1 + sizzle);
             } else if (c.stoveState === StoveState.COOKED) {
-              // 0–5s after cooked: Safe green bar + ✅ Checkmark icon
-              const postTime = Math.max(0, c.cookingTimer - cookDuration);
-              ratio = Math.max(0.1, 1 - postTime / CookingConfig.burnTimeline.safeDuration);
+              // 0–5s after cooked (burnTimer: 0..5s): Safe green bar + ✅ Checkmark icon
+              ratio = Math.max(0.1, 1 - c.burnTimer / totalBurnDur);
               c.progressFillMat.color.setHex(0x10b981);
               if (c.statusSprite) {
                 c.statusSprite.visible = true;
@@ -465,9 +523,9 @@ export class KitchenMap3D {
                 c.statusSprite.scale.set(s, s, 1);
               }
             } else if (c.stoveState === StoveState.WARNING) {
-              // 5–10s after cooked: Warning amber bar + pulsing ⚠️ icon
-              const warnElapsed = Math.max(0, c.cookingTimer - safeEnd);
-              ratio = Math.min(1, warnElapsed / CookingConfig.burnTimeline.warningDuration);
+              // 5–10s after cooked (burnTimer: 5..10s): Warning amber bar + pulsing ⚠️ icon
+              const warnElapsed = Math.max(0, c.burnTimer - safeDur);
+              ratio = Math.min(1, warnElapsed / warnDur);
               const pulse = Math.floor(Date.now() / 240) % 2 === 0;
               c.progressFillMat.color.setHex(pulse ? 0xf59e0b : 0xfacc15);
               if (c.statusSprite) {
@@ -477,9 +535,9 @@ export class KitchenMap3D {
                 c.statusSprite.scale.set(s, s, 1);
               }
             } else if (c.stoveState === StoveState.DANGER || c.stoveState === StoveState.BURNING) {
-              // 10–13s after cooked: Urgent flashing red bar + rapid flashing 🔥 icon
-              const dangerElapsed = Math.max(0, c.cookingTimer - warnEnd);
-              ratio = Math.min(1, dangerElapsed / Math.max(1, dangerEnd - warnEnd));
+              // 10–13s after cooked (burnTimer: 10..13s): Urgent flashing red bar + rapid flashing 🔥 icon
+              const dangerElapsed = Math.max(0, c.burnTimer - (safeDur + warnDur));
+              ratio = Math.min(1, dangerElapsed / Math.max(1, dangerDur));
               const blink = Math.floor(Date.now() / 110) % 2 === 0;
               c.progressFillMat.color.setHex(blink ? 0xef4444 : 0xf97316);
               if (c.statusSprite) {
@@ -587,7 +645,9 @@ export class KitchenMap3D {
   private decorateCounter(
     group: THREE.Group,
     type: CounterType,
-    id: string = ''
+    id: string = '',
+    x: number = 0,
+    z: number = 0
   ): {
     crateDisplayGroup?: THREE.Group;
     boardKnifeGroup?: THREE.Group;
@@ -844,17 +904,16 @@ export class KitchenMap3D {
       group.add(pedal);
       return {};
     }
-    // 5. REDESIGNED 3-LAYER INGREDIENT STORAGE STATIONS (Open Crate + 3D Piled Models + Floating Signboard)
+    // 5. OVERCOOKED-STYLE 3D INGREDIENT STORAGE BIN CABINETS WITH FLAT PLACEMENT COUNTERTOP
+    // - Zone A: Sturdy wooden/trimmed bin body + angled pull-out ingredient chute holding 3D ingredients inside!
+    // - Zone B: Completely FLAT top surface at y = 0.845 with 4 placement pads so players can place multiple items on top!
     else if (type.startsWith('crate_')) {
-      const crateDisplayGroup = new THREE.Group();
-      crateDisplayGroup.position.set(0, 0.84, 0);
-      group.add(crateDisplayGroup);
-
       let badgeColor = 0xd97706;
       let badgeEmoji = '🍞';
       let stationTitle = 'BÁNH MÌ';
       let itemType = IngredientType.BREAD;
       let linerColor = 0xfef3c7; // Warm bakery cloth
+      let topSurfaceColor = 0xfef9c3;
 
       if (type === CounterType.CRATE_MEAT) {
         badgeColor = 0xef4444;
@@ -862,123 +921,205 @@ export class KitchenMap3D {
         stationTitle = 'THỊT BÒ';
         itemType = IngredientType.RAW_MEAT;
         linerColor = 0xe0f2fe; // Chilled butcher ice tray
+        topSurfaceColor = 0xf8fafc;
       } else if (type === CounterType.CRATE_LETTUCE) {
         badgeColor = 0x22c55e;
         badgeEmoji = '🥬';
         stationTitle = 'XÀ LÁCH';
         itemType = IngredientType.LETTUCE;
         linerColor = 0xdcfce7; // Fresh produce liner
+        topSurfaceColor = 0xf0fdf4;
       } else if (type === CounterType.CRATE_TOMATO) {
         badgeColor = 0xf43f5e;
         badgeEmoji = '🍅';
         stationTitle = 'CÀ CHUA';
         itemType = IngredientType.TOMATO;
         linerColor = 0xfef2f2;
+        topSurfaceColor = 0xfff1f2;
       } else if (type === CounterType.CRATE_CHEESE) {
         badgeColor = 0xfacc15;
         badgeEmoji = '🧀';
         stationTitle = 'PHÔ MAI';
         itemType = IngredientType.CHEESE;
         linerColor = 0xfef9c3;
+        topSurfaceColor = 0xfefce8;
       } else if (type === CounterType.CRATE_PLATE) {
         badgeColor = 0x38bdf8;
         badgeEmoji = '🍽️';
         stationTitle = 'ĐĨA SỨ';
         itemType = IngredientType.PLATE;
         linerColor = 0x334155;
+        topSurfaceColor = 0xf1f5f9;
       }
 
-      // Layer 1: Open-Top Slatted Wooden Crate / Display Rim with Color-Coded Accent Trim
-      const woodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.7 });
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.65 });
+      const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 });
       const accentMat = new THREE.MeshStandardMaterial({
         color: badgeColor,
         roughness: 0.35,
         emissive: badgeColor,
-        emissiveIntensity: 0.15
+        emissiveIntensity: 0.14
       });
-      const linerMat = new THREE.MeshStandardMaterial({ color: linerColor, roughness: 0.5 });
+      const linerMat = new THREE.MeshStandardMaterial({ color: linerColor, roughness: 0.45 });
+      const flatTopMat = new THREE.MeshStandardMaterial({
+        color: topSurfaceColor,
+        roughness: 0.3,
+        metalness: 0.1
+      });
 
-      // Inner bed floor
-      const bed = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.78), linerMat);
-      bed.position.y = 0.03;
-      bed.receiveShadow = true;
-      crateDisplayGroup.add(bed);
+      // 1. Sturdy Wooden Bin Cabinet Cladding around body (y = 0.08 to 0.76)
+      const binShell = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.70, 0.96), woodMat);
+      binShell.position.y = 0.41;
+      binShell.castShadow = true;
+      binShell.receiveShadow = true;
+      group.add(binShell);
 
-      // 4 Open Crate Walls (so interior is recessed and holds piled 3D ingredients)
-      const wallH = 0.18;
-      const wallFront = new THREE.Mesh(new THREE.BoxGeometry(0.86, wallH, 0.06), woodMat);
-      wallFront.position.set(0, wallH / 2, 0.40);
-      wallFront.castShadow = true;
-      crateDisplayGroup.add(wallFront);
+      // 4 Reinforced Corner Pillars in color-coded accent
+      const cornerCoords = [
+        [-0.46, -0.46],
+        [0.46, -0.46],
+        [-0.46, 0.46],
+        [0.46, 0.46]
+      ];
+      cornerCoords.forEach(([cx, cz]) => {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.74, 0.08), darkWoodMat);
+        pillar.position.set(cx, 0.41, cz);
+        group.add(pillar);
+      });
 
-      const wallBack = new THREE.Mesh(new THREE.BoxGeometry(0.86, wallH, 0.06), woodMat);
-      wallBack.position.set(0, wallH / 2, -0.40);
-      wallBack.castShadow = true;
-      crateDisplayGroup.add(wallBack);
+      // 2. FLAT PLACEMENT COUNTERTOP SURFACE AT Y = 0.845 (100% flat, never blocks placed items!)
+      const flatWorktop = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.012, 0.96), flatTopMat);
+      flatWorktop.position.y = 0.840;
+      flatWorktop.receiveShadow = true;
+      group.add(flatWorktop);
 
-      const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, wallH, 0.74), woodMat);
-      wallLeft.position.set(-0.40, wallH / 2, 0);
-      wallLeft.castShadow = true;
-      crateDisplayGroup.add(wallLeft);
+      // Flush color-coded border trim around the flat top perimeter (y = 0.842, flush with top)
+      const trimH = 0.014;
+      const trimFront = new THREE.Mesh(new THREE.BoxGeometry(1.0, trimH, 0.05), accentMat);
+      trimFront.position.set(0, 0.840, 0.475);
+      group.add(trimFront);
 
-      const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.06, wallH, 0.74), woodMat);
-      wallRight.position.set(0.40, wallH / 2, 0);
-      wallRight.castShadow = true;
-      crateDisplayGroup.add(wallRight);
+      const trimBack = new THREE.Mesh(new THREE.BoxGeometry(1.0, trimH, 0.05), accentMat);
+      trimBack.position.set(0, 0.840, -0.475);
+      group.add(trimBack);
 
-      // Color-coded top rim strips around the crate perimeter for instant visual identification
-      const rimFront = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.035, 0.07), accentMat);
-      rimFront.position.set(0, wallH + 0.015, 0.40);
-      crateDisplayGroup.add(rimFront);
+      const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.05, trimH, 0.92), accentMat);
+      trimLeft.position.set(-0.475, 0.840, 0);
+      group.add(trimLeft);
 
-      const rimBack = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.035, 0.07), accentMat);
-      rimBack.position.set(0, wallH + 0.015, -0.40);
-      crateDisplayGroup.add(rimBack);
+      const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.05, trimH, 0.92), accentMat);
+      trimRight.position.set(0.475, 0.840, 0);
+      group.add(trimRight);
 
-      const rimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.035, 0.76), accentMat);
-      rimLeft.position.set(-0.40, wallH + 0.015, 0);
-      crateDisplayGroup.add(rimLeft);
+      // 4 Subtle Flush Placement Coasters on the flat top surface showing valid multi-item placement spots
+      const coasterMat = new THREE.MeshStandardMaterial({
+        color: badgeColor,
+        roughness: 0.4,
+        transparent: true,
+        opacity: 0.28
+      });
+      const slotCoords = [
+        [-0.22, -0.21],
+        [0.22, -0.21],
+        [-0.22, 0.21],
+        [0.22, 0.21]
+      ];
+      slotCoords.forEach(([sx, sz]) => {
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.004, 16), coasterMat);
+        pad.position.set(sx, 0.845, sz);
+        group.add(pad);
+      });
 
-      const rimRight = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.035, 0.76), accentMat);
-      rimRight.position.set(0.40, wallH + 0.015, 0);
-      crateDisplayGroup.add(rimRight);
+      // 3. ANGLED INTERIOR INGREDIENT STORAGE DRAWER / CHUTE (Built into kitchen-facing side of the bin!)
+      // Determine which direction faces the kitchen walkway so the open ingredient bin drawer is clearly visible
+      let drawerDirRotY = 0; // Default +Z (front)
+      if (x < -2.5) {
+        drawerDirRotY = Math.PI / 2; // Left column (-4): faces +X toward kitchen center
+      } else if (x > 2.5) {
+        drawerDirRotY = -Math.PI / 2; // Right column (+4): faces -X toward kitchen center
+      } else if (z > 2.0) {
+        drawerDirRotY = Math.PI; // Bottom row (+3): faces -Z toward kitchen center
+      }
 
-      // Layer 2: Abundant 3D Ingredient Models Piled Inside the Crate!
+      const drawerAnchor = new THREE.Group();
+      drawerAnchor.rotation.y = drawerDirRotY;
+      group.add(drawerAnchor);
+
+      const crateDisplayGroup = new THREE.Group();
+      // Positioned in the upper-middle front bay of the bin cabinet (y = 0.48, z = +0.34)
+      // Tilted forward so the camera and chef see the abundant 3D ingredients inside the bin!
+      crateDisplayGroup.position.set(0, 0.48, 0.34);
+      crateDisplayGroup.rotation.x = 0.38;
+      drawerAnchor.add(crateDisplayGroup);
+
+      // Drawer box pocket
+      const drawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.05, 0.38), linerMat);
+      drawerFloor.position.set(0, 0, 0);
+      crateDisplayGroup.add(drawerFloor);
+
+      const drawerLip = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.16, 0.045), darkWoodMat);
+      drawerLip.position.set(0, 0.06, 0.18);
+      crateDisplayGroup.add(drawerLip);
+
+      const drawerAccent = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.035, 0.055), accentMat);
+      drawerAccent.position.set(0, 0.14, 0.18);
+      crateDisplayGroup.add(drawerAccent);
+
+      const drawerSideL = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.38), darkWoodMat);
+      drawerSideL.position.set(-0.36, 0.07, 0);
+      crateDisplayGroup.add(drawerSideL);
+
+      const drawerSideR = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.38), darkWoodMat);
+      drawerSideR.position.set(0.36, 0.07, 0);
+      crateDisplayGroup.add(drawerSideR);
+
+      // Abundant 3D Ingredient Models inside the bin drawer chute!
       if (type === CounterType.CRATE_PLATE) {
         const plateMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.12, metalness: 0.15 });
         const rimBlueMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2 });
-        for (let p = 0; p < 5; p++) {
-          const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 0.035, 22), plateMat);
-          pMesh.position.set(0, 0.08 + p * 0.042, 0);
+        for (let p = 0; p < 4; p++) {
+          const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.19, 0.03, 20), plateMat);
+          pMesh.position.set(0, 0.04 + p * 0.036, 0.02);
           pMesh.castShadow = true;
           crateDisplayGroup.add(pMesh);
 
-          const pRim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.012, 8, 22), rimBlueMat);
+          const pRim = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.01, 8, 20), rimBlueMat);
           pRim.rotation.x = Math.PI / 2;
-          pRim.position.set(0, 0.095 + p * 0.042, 0);
+          pRim.position.set(0, 0.052 + p * 0.036, 0.02);
           crateDisplayGroup.add(pRim);
         }
       } else {
-        // Place 4 actual 3D ingredient models arranged naturally in the crate
         const placements = [
-          { x: -0.16, y: 0.06, z: -0.14, rotY: 0.2, tiltZ: 0.1, scale: 0.72 },
-          { x: 0.16, y: 0.06, z: -0.14, rotY: 1.4, tiltZ: -0.1, scale: 0.72 },
-          { x: -0.15, y: 0.07, z: 0.15, rotY: 2.5, tiltZ: 0.08, scale: 0.74 },
-          { x: 0.15, y: 0.07, z: 0.15, rotY: 3.8, tiltZ: -0.08, scale: 0.74 },
-          { x: 0.0, y: 0.16, z: 0.0, rotY: 0.7, tiltZ: 0.05, scale: 0.82 } // Hero top item in center!
+          { x: -0.17, y: 0.03, z: -0.03, rotY: 0.2, scale: 0.65 },
+          { x: 0.17, y: 0.03, z: -0.03, rotY: 1.4, scale: 0.65 },
+          { x: -0.11, y: 0.06, z: 0.06, rotY: 2.3, scale: 0.68 },
+          { x: 0.11, y: 0.06, z: 0.06, rotY: 3.6, scale: 0.68 },
+          { x: 0.0, y: 0.11, z: 0.02, rotY: 0.7, scale: 0.74 }
         ];
         placements.forEach((pl) => {
           const sample = Ingredient3DFactory.createMeshFromType(itemType);
           sample.position.set(pl.x, pl.y, pl.z);
-          sample.rotation.set(0, pl.rotY, pl.tiltZ);
+          sample.rotation.set(0, pl.rotY, 0);
           sample.scale.setScalar(pl.scale);
           crateDisplayGroup.add(sample);
         });
       }
 
-      // Layer 3: Front Icon Badge + High-Contrast Floating 3D Label Signboard
+      // 4. Front Icon Badge + Non-Occluding Outer-Edge Label Signboard (never blocks the flat top surface!)
       this.createCrateSignBadge(group, badgeEmoji, badgeColor);
-      this.createFloatingStationLabel(group, badgeEmoji, stationTitle, badgeColor);
+      let labelOffsetX = 0;
+      let labelOffsetZ = -0.38;
+      if (x < -2.5) {
+        labelOffsetX = -0.48; // Offset to outer left wall edge
+        labelOffsetZ = 0;
+      } else if (x > 2.5) {
+        labelOffsetX = 0.48;  // Offset to outer right wall edge
+        labelOffsetZ = 0;
+      } else if (z > 2.0) {
+        labelOffsetX = 0;
+        labelOffsetZ = 0.46;  // Offset to outer bottom edge
+      }
+      this.createFloatingStationLabel(group, badgeEmoji, stationTitle, badgeColor, labelOffsetX, labelOffsetZ);
 
       return { crateDisplayGroup };
     }
@@ -1017,7 +1158,14 @@ export class KitchenMap3D {
     group.add(badge);
   }
 
-  private createFloatingStationLabel(group: THREE.Group, emoji: string, title: string, color: number) {
+  private createFloatingStationLabel(
+    group: THREE.Group,
+    emoji: string,
+    title: string,
+    color: number,
+    offsetX: number = 0,
+    offsetZ: number = -0.35
+  ) {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 80;
@@ -1054,8 +1202,8 @@ export class KitchenMap3D {
       depthTest: false
     });
     const labelSprite = new THREE.Sprite(spriteMat);
-    labelSprite.position.set(0, 1.48, -0.15);
-    labelSprite.scale.set(1.05, 0.33, 1);
+    labelSprite.position.set(offsetX, 1.32, offsetZ);
+    labelSprite.scale.set(0.95, 0.30, 1);
     labelSprite.renderOrder = 5;
     group.add(labelSprite);
   }
