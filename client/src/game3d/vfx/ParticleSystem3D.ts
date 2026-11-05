@@ -27,6 +27,26 @@ export class ParticleSystem3D {
     this.scene = scene;
   }
 
+  // Rapid cartoon dust clouds bursting from feet during dash
+  public emitDashDust(x: number, y: number, z: number, dirX: number, dirZ: number) {
+    for (let i = 0; i < 4; i++) {
+      const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat.clone());
+      mesh.position.set(x + (Math.random() - 0.5) * 0.2, y + 0.05, z + (Math.random() - 0.5) * 0.2);
+      this.scene.add(mesh);
+
+      this.particles.push({
+        mesh,
+        // Blow backwards opposite to dash direction
+        velX: -dirX * (1.2 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
+        velY: 0.3 + Math.random() * 0.3,
+        velZ: -dirZ * (1.2 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
+        life: 0,
+        maxLife: 0.35,
+        scaleSpeed: 1.8
+      });
+    }
+  }
+
   // Steam rising gently from hot stove
   public emitSteam(x: number, y: number, z: number) {
     const mesh = new THREE.Mesh(this.puffGeo, this.whitePuffMat.clone());

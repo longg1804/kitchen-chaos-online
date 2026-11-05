@@ -7,6 +7,7 @@ export interface MobileInputsState {
   isActionPressed: boolean;
   isActionJustPressed: boolean;
   isThrowJustPressed: boolean;
+  isDashJustPressed: boolean;
 }
 
 export class HUDOverlay3D {
@@ -17,13 +18,15 @@ export class HUDOverlay3D {
     isPickupJustPressed: false,
     isActionPressed: false,
     isActionJustPressed: false,
-    isThrowJustPressed: false
+    isThrowJustPressed: false,
+    isDashJustPressed: false
   };
 
   private scoreEl!: HTMLElement;
   private timerEl!: HTMLElement;
   private ordersContainer!: HTMLElement;
   private gameOverEl!: HTMLElement;
+  private dashBtnEl?: HTMLElement;
   private onExitCallback: () => void;
   private onScreenshotCallback?: () => void;
 
@@ -375,6 +378,11 @@ export class HUDOverlay3D {
       pointer-events: auto;
     `;
 
+    // Dash / Sprint (Indigo with lightning)
+    this.dashBtnEl = this.createTouchButton('⚡<br>LƯỚT', '#6366f1', '#4f46e5', 66, () => {
+      this.inputs.isDashJustPressed = true;
+    });
+
     // Pickup / Drop (Green)
     const pickupBtn = this.createTouchButton('CẦM<br>THẢ', '#10b981', '#059669', 72, () => {
       this.inputs.isPickupJustPressed = true;
@@ -392,10 +400,24 @@ export class HUDOverlay3D {
       this.inputs.isThrowJustPressed = true;
     });
 
+    btnContainer.appendChild(this.dashBtnEl);
     btnContainer.appendChild(throwBtn);
     btnContainer.appendChild(pickupBtn);
     btnContainer.appendChild(actionBtn);
     this.container.appendChild(btnContainer);
+  }
+
+  public updateDashCooldown(remainingSeconds: number, _totalCooldown: number) {
+    if (!this.dashBtnEl) return;
+    if (remainingSeconds > 0) {
+      this.dashBtnEl.style.opacity = '0.5';
+      this.dashBtnEl.style.filter = 'grayscale(50%)';
+      this.dashBtnEl.innerHTML = `<span style="font-size: 13px;">${remainingSeconds.toFixed(1)}s</span>`;
+    } else {
+      this.dashBtnEl.style.opacity = '1.0';
+      this.dashBtnEl.style.filter = 'none';
+      this.dashBtnEl.innerHTML = '⚡<br>LƯỚT';
+    }
   }
 
   private createTouchButton(
@@ -469,7 +491,7 @@ export class HUDOverlay3D {
       backdrop-filter: blur(4px);
       white-space: nowrap;
     `;
-    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném';
+    hint.innerHTML = '⌨ <b>[WASD / ⬆⬅⬇➡]</b> Di chuyển &nbsp;|&nbsp; <b>[Shift]</b> Lướt (Dash) &nbsp;|&nbsp; <b>[E]</b> Cầm/Thả &nbsp;|&nbsp; <b>[Space]</b> Cắt/Nấu &nbsp;|&nbsp; <b>[Q]</b> Ném &nbsp;|&nbsp; <b>[P]</b> Chụp ảnh';
     this.container.appendChild(hint);
   }
 

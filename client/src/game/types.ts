@@ -9,6 +9,18 @@ export enum IngredientType {
   SLICED_TOMATO = 'sliced_tomato',
   CHEESE = 'cheese',
   SLICED_CHEESE = 'sliced_cheese',
+  CHICKEN = 'chicken',
+  COOKED_CHICKEN = 'cooked_chicken',
+  FISH = 'fish',
+  COOKED_FISH = 'cooked_fish',
+  SHRIMP = 'shrimp',
+  COOKED_SHRIMP = 'cooked_shrimp',
+  ONION = 'onion',
+  SLICED_ONION = 'sliced_onion',
+  POTATO = 'potato',
+  CHOPPED_POTATO = 'chopped_potato',
+  EGG = 'egg',
+  FRIED_EGG = 'fried_egg',
   PLATE = 'plate'
 }
 

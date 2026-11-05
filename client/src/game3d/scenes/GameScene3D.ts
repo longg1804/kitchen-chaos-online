@@ -43,6 +43,16 @@ export class GameScene3D {
   private heldItem: KitchenItem | null = null;
   private heldItemMesh: THREE.Group | null = null;
 
+  // Dash System
+  private isDashing = false;
+  private dashTimer = 0;
+  private readonly dashDuration = 0.28; // 280ms
+  private readonly dashCooldown = 1.6; // 1.6s cooldown
+  private dashCooldownTimer = 0;
+  private readonly dashSpeedMultiplier = 2.2;
+  private dashDirection = { x: 0, z: 1 };
+  private dashParticleTimer = 0;
+
   // Remote Players
   private remotePlayers = new Map<string, { chef: ChefCharacter3D; targetX: number; targetZ: number; heldMesh?: THREE.Group }>();
 
@@ -181,6 +191,7 @@ export class GameScene3D {
       if (e.code === 'KeyE') this.handlePickupDrop();
       if (e.code === 'KeyQ') this.handleThrow();
       if (e.code === 'KeyP') this.takeScreenshot();
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyK') this.handleDash();
     });
 
     window.addEventListener('keyup', (e: KeyboardEvent) => {
@@ -217,6 +228,8 @@ export class GameScene3D {
       const r = this.remotePlayers.get(data.id);
       if (!r) return;
 
+      r.chef.isHoldingItem = (data.item !== null);
+
       if (r.heldMesh) {
         r.chef.handAnchor.remove(r.heldMesh);
         r.heldMesh = undefined;
@@ -224,7 +237,18 @@ export class GameScene3D {
 
       if (data.item) {
         r.heldMesh = Ingredient3DFactory.createMesh(data.item);
+        r.heldMesh.position.set(0, 0, 0);
         r.chef.handAnchor.add(r.heldMesh);
+      }
+    });
+
+    // Remote player dash broadcast
+    room.onMessage('remote_player_dash', (data: { id: string; dirX: number; dirZ: number; duration: number }) => {
+      const r = this.remotePlayers.get(data.id);
+      if (r) {
+        r.chef.triggerDash(data.duration || 0.28);
+        this.sound.playDash();
+        this.particles.emitDashDust(r.chef.group.position.x, 0, r.chef.group.position.z, data.dirX, data.dirZ);
       }
     });
 
@@ -289,6 +313,13 @@ export class GameScene3D {
     this.hud.updateScoreAndTimer(this.recipeManager.score, this.recipeManager.combo, this.matchTimeRemaining);
     this.hud.updateOrders(this.recipeManager.getOrders());
 
+    // Dash Cooldown Update
+    if (this.dashCooldownTimer > 0) {
+      this.dashCooldownTimer -= delta;
+      if (this.dashCooldownTimer < 0) this.dashCooldownTimer = 0;
+    }
+    this.hud.updateDashCooldown(this.dashCooldownTimer, this.dashCooldown);
+
     // 3. Local Player Movement & Physics
     this.handleMovement(delta);
 
@@ -335,6 +366,34 @@ export class GameScene3D {
   }
 
   private handleMovement(delta: number) {
+    // Handle Active Dash Movement
+    if (this.isDashing) {
+      this.dashTimer -= delta;
+      this.dashParticleTimer += delta;
+      if (this.dashParticleTimer >= 0.05) {
+        this.dashParticleTimer = 0;
+        this.particles.emitDashDust(this.playerPos.x, 0, this.playerPos.z, this.dashDirection.x, this.dashDirection.z);
+      }
+
+      if (this.dashTimer <= 0) {
+        this.isDashing = false;
+        this.dashTimer = 0;
+      }
+
+      const dashSpeed = this.playerSpeed * this.dashSpeedMultiplier;
+      const nextX = this.playerPos.x + this.dashDirection.x * dashSpeed * delta;
+      const nextZ = this.playerPos.z + this.dashDirection.z * dashSpeed * delta;
+
+      const resolved = this.physics.resolveCollision(nextX, nextZ, 0.38);
+      this.playerPos.x = resolved.x;
+      this.playerPos.z = resolved.z;
+
+      this.localPlayer.group.position.x = this.playerPos.x;
+      this.localPlayer.group.position.z = this.playerPos.z;
+      this.localPlayer.update(delta, true);
+      return;
+    }
+
     let moveX = 0;
     let moveZ = 0;
 
@@ -469,6 +528,10 @@ export class GameScene3D {
   }
 
   private processMobileActions() {
+    if (this.hud.inputs.isDashJustPressed) {
+      this.hud.inputs.isDashJustPressed = false;
+      this.handleDash();
+    }
     if (this.hud.inputs.isPickupJustPressed) {
       this.hud.inputs.isPickupJustPressed = false;
       this.handlePickupDrop();
@@ -476,6 +539,46 @@ export class GameScene3D {
     if (this.hud.inputs.isThrowJustPressed) {
       this.hud.inputs.isThrowJustPressed = false;
       this.handleThrow();
+    }
+  }
+
+  private handleDash() {
+    if (this.isDashing || this.dashCooldownTimer > 0) return;
+
+    this.isDashing = true;
+    this.dashTimer = this.dashDuration;
+    this.dashCooldownTimer = this.dashCooldown;
+
+    // Movement direction or facing direction
+    let moveX = 0;
+    let moveZ = 0;
+    if (this.keys['KeyW'] || this.keys['ArrowUp']) moveZ -= 1;
+    if (this.keys['KeyS'] || this.keys['ArrowDown']) moveZ += 1;
+    if (this.keys['KeyA'] || this.keys['ArrowLeft']) moveX -= 1;
+    if (this.keys['KeyD'] || this.keys['ArrowRight']) moveX += 1;
+    if (this.hud.inputs.moveX !== 0 || this.hud.inputs.moveZ !== 0) {
+      moveX = this.hud.inputs.moveX;
+      moveZ = this.hud.inputs.moveZ;
+    }
+
+    if (Math.hypot(moveX, moveZ) > 0.1) {
+      const len = Math.hypot(moveX, moveZ);
+      this.dashDirection = { x: moveX / len, z: moveZ / len };
+    } else {
+      this.dashDirection = { ...this.facingDir };
+    }
+
+    this.localPlayer.setRotation(Math.atan2(this.dashDirection.x, this.dashDirection.z));
+    this.localPlayer.triggerDash(this.dashDuration);
+    this.sound.playDash();
+    this.particles.emitDashDust(this.playerPos.x, 0, this.playerPos.z, this.dashDirection.x, this.dashDirection.z);
+
+    if (this.config.isMultiplayer && this.network.room) {
+      this.network.room.send('player_dash', {
+        dirX: this.dashDirection.x,
+        dirZ: this.dashDirection.z,
+        duration: this.dashDuration
+      });
     }
   }
 
@@ -622,6 +725,7 @@ export class GameScene3D {
 
   private setHeldItem(item: KitchenItem | null) {
     this.heldItem = item;
+    this.localPlayer.isHoldingItem = (item !== null);
     this.updateHeldMesh();
 
     if (this.config.isMultiplayer && this.network.room) {

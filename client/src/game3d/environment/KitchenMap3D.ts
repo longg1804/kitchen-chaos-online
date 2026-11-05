@@ -223,9 +223,20 @@ export class KitchenMap3D {
     plinth.position.y = 0.04;
     group.add(plinth);
 
-    // Item Holder (where food / plate sits)
+    // Calibrated Snap-to-Slot Item Holder (Item bottom plane rests exactly at surface)
+    let slotY = 0.845; // Plain flat countertop
+    let slotZ = 0;
+    if (type === CounterType.CUTTING_BOARD) {
+      slotY = 0.895; // On top of butcher block
+      slotZ = 0.02;
+    } else if (type === CounterType.STOVE) {
+      slotY = 0.905; // Inside cast iron frying pan
+    } else if (type === CounterType.DELIVERY) {
+      slotY = 0.875; // On top of green delivery conveyor
+    }
+
     const itemHolder = new THREE.Group();
-    itemHolder.position.set(0, 0.84, 0);
+    itemHolder.position.set(0, slotY, slotZ);
     group.add(itemHolder);
 
     // Equipment on top based on Type

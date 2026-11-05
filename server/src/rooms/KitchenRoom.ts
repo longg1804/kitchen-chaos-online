@@ -120,6 +120,31 @@ export class KitchenRoom extends Room<KitchenRoomState> {
       }, { except: client });
     });
 
+    // Dash Synchronization with Anti-Spam Server Cooldown
+    const lastDashMap = new Map<string, number>();
+    this.onMessage('player_dash', (client, data: { dirX: number; dirZ: number; duration: number }) => {
+      const now = Date.now();
+      const last = lastDashMap.get(client.sessionId) || 0;
+      if (now - last < 1300) {
+        return;
+      }
+      lastDashMap.set(client.sessionId, now);
+
+      this.broadcast('remote_player_dash', {
+        id: client.sessionId,
+        dirX: data.dirX,
+        dirZ: data.dirZ,
+        duration: data.duration || 0.28
+      }, { except: client });
+    });
+
+    this.onMessage('held_update', (client, data: { item: any }) => {
+      this.broadcast('remote_held_update', {
+        id: client.sessionId,
+        item: data.item
+      }, { except: client });
+    });
+
     this.onMessage('player_action', (client, data: { counterId: string; delta: number }) => {
       const player = this.state.players.get(client.sessionId);
       const counter = this.state.counters.get(data.counterId);

@@ -23,6 +23,9 @@ export class ChefCharacter3D {
 
   // Animation states
   public currentAnim: 'idle' | 'walk' | 'chop' | 'celebrate' | 'fail' = 'idle';
+  public isHoldingItem: boolean = false;
+  public isDashing: boolean = false;
+  private dashTimer: number = 0;
   private animTimer: number = 0;
   private targetRotation: number = 0;
 
@@ -290,17 +293,57 @@ export class ChefCharacter3D {
     this.targetRotation = angleRad;
   }
 
+  public triggerDash(duration: number = 0.28) {
+    this.isDashing = true;
+    this.dashTimer = duration;
+  }
+
   public update(delta: number, isMoving: boolean) {
     this.animTimer += delta * 10;
+
+    // Dash timer countdown
+    if (this.isDashing) {
+      this.dashTimer -= delta;
+      if (this.dashTimer <= 0) {
+        this.isDashing = false;
+        this.dashTimer = 0;
+      }
+    }
 
     // Smooth rotation towards movement direction
     let diff = this.targetRotation - this.group.rotation.y;
     // Normalize diff to [-PI, PI]
     while (diff < -Math.PI) diff += Math.PI * 2;
     while (diff > Math.PI) diff -= Math.PI * 2;
-    this.group.rotation.y += diff * Math.min(1, delta * 15);
+    this.group.rotation.y += diff * Math.min(1, delta * 18);
 
     // Apply procedural animations based on state
+    if (this.isDashing) {
+      this.knifeMesh.visible = false;
+      // High-speed aerodynamic dash pose (Squash & stretch, forward lean)
+      this.group.position.y = 0.04;
+      this.bodyMesh.rotation.x = 0.42; // Strong forward charge
+      this.bodyMesh.scale.set(0.9, 0.85, 1.25);
+      this.headGroup.rotation.x = 0.3;
+      this.chefHat.rotation.x = -0.35; // Hat blown backward by wind!
+
+      if (this.isHoldingItem) {
+        // Tightly clutch food in front
+        this.leftHand.position.set(-0.18, 0.45, 0.35);
+        this.rightHand.position.set(0.18, 0.45, 0.35);
+        this.handAnchor.position.set(0, 0.45, 0.40);
+      } else {
+        // Naruto / sonic sprint arms swept back!
+        this.leftHand.position.set(-0.30, 0.25, -0.25);
+        this.rightHand.position.set(0.30, 0.25, -0.25);
+      }
+      return;
+    }
+
+    // Reset scales from dash
+    this.bodyMesh.scale.set(1, 1, 1);
+    this.chefHat.rotation.x = 0;
+
     if (this.currentAnim === 'chop') {
       // Rapid chopping rhythm!
       this.knifeMesh.visible = true;
@@ -331,9 +374,16 @@ export class ChefCharacter3D {
       this.leftFoot.position.z = Math.sin(this.animTimer * 1.2) * 0.15;
       this.rightFoot.position.z = -Math.sin(this.animTimer * 1.2) * 0.15;
 
-      // Hands swinging opposite to feet
-      this.leftHand.position.set(-0.32, 0.32, -waddle * 0.15);
-      this.rightHand.position.set(0.32, 0.32, waddle * 0.15);
+      if (this.isHoldingItem) {
+        // Holding item stably with two hands up in front!
+        this.leftHand.position.set(-0.20, 0.46, 0.32);
+        this.rightHand.position.set(0.20, 0.46, 0.32);
+        this.handAnchor.position.set(0, 0.46, 0.38);
+      } else {
+        // Hands swinging opposite to feet
+        this.leftHand.position.set(-0.32, 0.32, -waddle * 0.15);
+        this.rightHand.position.set(0.32, 0.32, waddle * 0.15);
+      }
     } else {
       this.knifeMesh.visible = false;
       this.currentAnim = 'idle';
@@ -344,8 +394,17 @@ export class ChefCharacter3D {
       this.headGroup.position.y = 0.68 + breath * 0.015;
       this.leftFoot.position.z = 0;
       this.rightFoot.position.z = 0;
-      this.leftHand.position.set(-0.32, 0.32 + breath * 0.01, 0.1);
-      this.rightHand.position.set(0.32, 0.32 + breath * 0.01, 0.1);
+
+      if (this.isHoldingItem) {
+        // Standing proud holding item
+        this.leftHand.position.set(-0.20, 0.46 + breath * 0.01, 0.32);
+        this.rightHand.position.set(0.20, 0.46 + breath * 0.01, 0.32);
+        this.handAnchor.position.set(0, 0.46 + breath * 0.01, 0.38);
+      } else {
+        this.leftHand.position.set(-0.32, 0.32 + breath * 0.01, 0.1);
+        this.rightHand.position.set(0.32, 0.32 + breath * 0.01, 0.1);
+      }
+
       this.bodyMesh.rotation.z = 0;
       this.headGroup.rotation.z = 0;
       this.bodyMesh.rotation.x = 0;
